@@ -38,7 +38,5 @@ time_of_day {
         hour: 17.4,
         day_of_year: 80,
         latitude: 25.2,
-        north_offset: 30,
-        time_scale: 0.0
     }
 }

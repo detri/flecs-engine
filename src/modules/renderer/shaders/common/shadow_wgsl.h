@@ -66,11 +66,15 @@
     "  var shadow = sampleShadowCascade(world_pos, cascade);\n" \
     "  let range = max(far_split - near_split, 0.0001);\n" \
     "  let blend_start = far_split - range * 0.15;\n" \
-    "  if (cascade < 3 && view_depth > blend_start && shadow >= 0.0) {\n" \
-    "    let next = sampleShadowCascade(world_pos, cascade + 1);\n" \
-    "    if (next >= 0.0) {\n" \
-    "      let t = clamp((view_depth - blend_start) / max(far_split - blend_start, 0.0001), 0.0, 1.0);\n" \
-    "      shadow = mix(shadow, next, t);\n" \
+    "  if (view_depth > blend_start && shadow >= 0.0) {\n" \
+    "    let t = clamp((view_depth - blend_start) / max(far_split - blend_start, 0.0001), 0.0, 1.0);\n" \
+    "    if (cascade < 3) {\n" \
+    "      let next = sampleShadowCascade(world_pos, cascade + 1);\n" \
+    "      if (next >= 0.0) {\n" \
+    "        shadow = mix(shadow, next, t);\n" \
+    "      }\n" \
+    "    } else {\n" \
+    "      shadow = mix(shadow, 1.0, t);\n" \
     "    }\n" \
     "  }\n" \
     "  if (shadow < 0.0 && cascade < 3) {\n" \

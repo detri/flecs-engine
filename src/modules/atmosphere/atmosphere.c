@@ -616,6 +616,17 @@ static const char *kComposeShaderSource =
     "  }\n"
     "  return col * u.star_color.rgb;\n"
     "}\n"
+    "fn atmos_wobble(rd : vec3<f32>, t_in : f32, amount : f32, spatial : f32, speed : f32) -> vec3<f32> {\n"
+    "  if (amount <= 0.0) { return rd; }\n"
+    "  let t = t_in * speed;\n"
+    "  let p = rd * spatial;\n"
+    "  let s1 = sin(p + vec3<f32>(t * 0.73, t * 0.91, t * 1.13));\n"
+    "  let s2 = sin(p.yzx * 1.37 + vec3<f32>(t * 1.21, t * 0.83, t * 0.97));\n"
+    "  let d_iso = (s1 + 0.5 * s2) * 0.666;\n"
+    "  let d = vec3<f32>(d_iso.x * 0.05, d_iso.y, d_iso.z * 0.05);\n"
+    "  let horizon_boost = 0.3 + 0.7 * (1.0 - clamp(rd.y, -0.05, 1.0));\n"
+    "  return normalize(rd + d * 0.008 * amount * horizon_boost);\n"
+    "}\n"
     "fn sample_aerial(uv : vec2<f32>, d_km : f32, max_km : f32, slice_count : f32) -> vec4<f32> {\n"
     "  let sf = clamp(d_km / max_km, 0.0, 1.0) * slice_count - 1.0;\n"
     "  let lo = i32(floor(sf));\n"
@@ -644,12 +655,13 @@ static const char *kComposeShaderSource =
     "  if (is_sky) {\n"
     "    let world_pos = reconstruct_world_pos(in.uv, 1.0);\n"
     "    let rd = normalize(world_pos - u.camera_pos_world.xyz);\n"
+    "    let rd_w = atmos_wobble(rd, u.misc.z, u.misc.y, u.misc.w, u.aerial_params.y);\n"
     "    let alt_km = u.camera_pos_world.w;\n"
     "    let view_r = bottomR(u) + max(alt_km, PLANET_OFFSET);\n"
     "    var sv_uv = dir_to_skyview_uv(rd, view_r, u);\n"
     "    sv_uv.y = min(sv_uv.y, 0.5);\n"
     "    var sky = textureSampleLevel(skyview_lut, lut_sampler, sv_uv, 0.0).rgb;\n"
-    "    let sun_cos = dot(rd, u.sun_direction.xyz);\n"
+    "    let sun_cos = dot(rd_w, u.sun_direction.xyz);\n"
     "    let disk_cos = u.mie_params.z;\n"
     "    let disk_int = u.mie_params.w;\n"
     "    if (disk_int > 0.0 && sun_cos > disk_cos - 0.001) {\n"
@@ -664,7 +676,7 @@ static const char *kComposeShaderSource =
     "      }\n"
     "    }\n"
     "    let moon = u.moon_direction.xyz;\n"
-    "    let moon_cos = dot(rd, moon);\n"
+    "    let moon_cos = dot(rd_w, moon);\n"
     "    if (moon_cos > disk_cos - 0.001) {\n"
     "      let ro = vec3<f32>(0.0, view_r, 0.0);\n"
     "      let t_ground = ray_sphere_nearest(ro, rd, bottomR(u));\n"
@@ -676,7 +688,7 @@ static const char *kComposeShaderSource =
     "        let b = D * moon_cos;\n"
     "        let disc = max(0.0, b * b - (D * D - 1.0));\n"
     "        let t_hit = b - sqrt(disc);\n"
-    "        let p = t_hit * rd;\n"
+    "        let p = t_hit * rd_w;\n"
     "        let n = normalize(p - D * moon);\n"
     "        let n_dot_l = max(0.0, dot(n, u.sun_direction.xyz));\n"
     "        let moon_albedo = 0.12;\n"
@@ -788,7 +800,10 @@ FlecsAtmosphere flecsEngine_atmosphereSettingsDefault(void)
         .haze_absorption = 0.0f,
         .ground_albedo = { 77, 77, 77, 255 },
         .night_tint = { 70, 110, 230, 255 },
-        .night_intensity = 0.003f
+        .night_intensity = 0.003f,
+        .turbulence = 0.0f,
+        .turbulence_scale = 40.0f,
+        .turbulence_speed = 1.0f
     };
 }
 
@@ -868,7 +883,12 @@ static void flecsEngine_atmos_fillUniform(
     out->world_scale[3] = s->ground_altitude_km;
 
     out->misc[0] = (float)FLECS_ATMOS_AERIAL_SLICES;
+    out->misc[1] = s->turbulence > 0.0f ? s->turbulence : 0.0f;
+    const ecs_world_info_t *wi = ecs_get_world_info(world);
+    out->misc[2] = wi ? (float)wi->world_time_total : 0.0f;
+    out->misc[3] = s->turbulence_scale > 0.0f ? s->turbulence_scale : 40.0f;
 
+    out->aerial_params[1] = s->turbulence_speed > 0.0f ? s->turbulence_speed : 1.0f;
     out->aerial_params[0] = s->aerial_perspective_intensity >= 0.0f
         ? s->aerial_perspective_intensity : 1.0f;
 
@@ -1911,7 +1931,10 @@ void FlecsEngineAtmosphereImport(ecs_world_t *world)
             { .name = "haze_absorption", .type = ecs_id(ecs_f32_t) },
             { .name = "ground_albedo", .type = ecs_id(flecs_rgba_t) },
             { .name = "night_tint", .type = ecs_id(flecs_rgba_t) },
-            { .name = "night_intensity", .type = ecs_id(ecs_f32_t) }
+            { .name = "night_intensity", .type = ecs_id(ecs_f32_t) },
+            { .name = "turbulence", .type = ecs_id(ecs_f32_t) },
+            { .name = "turbulence_scale", .type = ecs_id(ecs_f32_t) },
+            { .name = "turbulence_speed", .type = ecs_id(ecs_f32_t) }
         }
     });
 }

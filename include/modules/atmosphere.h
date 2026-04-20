@@ -47,6 +47,10 @@ ECS_STRUCT(FlecsAtmosphere, {
 
     flecs_rgba_t night_tint;
     float night_intensity;
+
+    float turbulence;
+    float turbulence_scale;
+    float turbulence_speed;
 });
 
 extern ECS_COMPONENT_DECLARE(FlecsAtmosphere);
