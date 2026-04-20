@@ -236,7 +236,7 @@ void initEngine(
     flecsEngine_autoExposureSettingsDefault();
   auto_exposure_settings.min_log_luma = -16;
   auto_exposure_settings.low_percentile = 0;
-  auto_exposure_settings.min_brightness = 0.03;
+  auto_exposure_settings.min_brightness = 0.01;
   auto_exposure_settings.max_brightness = 0.3;
 
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =

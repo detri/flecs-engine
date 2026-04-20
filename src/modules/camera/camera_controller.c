@@ -90,10 +90,12 @@ void CameraControllerApplyInput(
         if (input->keys[FLECS_KEY_UP].state)    target_av_x += 1.0f;
         if (input->keys[FLECS_KEY_DOWN].state)  target_av_x -= 1.0f;
 
+        float yaw_scale = sprint ? 0.33f : 1.0f;
+
         float alen = sqrtf(target_av_x * target_av_x + target_av_y * target_av_y);
         if (alen > 0) {
             target_av_x *= CameraAngularMaxSpeed / alen;
-            target_av_y *= CameraAngularMaxSpeed / alen;
+            target_av_y *= CameraAngularMaxSpeed * yaw_scale / alen;
         }
 
         float a_alpha = (alen > 0) ? angular_accel_alpha : angular_decel_alpha;
@@ -101,7 +103,7 @@ void CameraControllerApplyInput(
         av[i].y += (target_av_y - av[i].y) * a_alpha;
 
         if (input->mouse.left.state) {
-            av[i].y = -input->mouse.rel.x * CameraMouseSensitivity / dt;
+            av[i].y = -input->mouse.rel.x * CameraMouseSensitivity * yaw_scale / dt;
             av[i].x = -input->mouse.rel.y * CameraMouseSensitivity / dt;
         }
 
