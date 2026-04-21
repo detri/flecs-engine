@@ -41,6 +41,10 @@ template RandomSuburban {
     } else if v == 3 {
       (IsA, kenney.suburban.building_d.d)
     }
+    _ : kenney.driveway_long {
+      Position3: {0.35, 0.02, -0.8}
+      Scale3: {1, 1, 1.6}
+    }
   } else if p == 3 {
     if v == 0 {
       (IsA, kenney.suburban.building_e.a)
@@ -91,6 +95,10 @@ template RandomSuburban {
     } else if v == 3 {
       (IsA, kenney.suburban.building_i.d)
     }
+    _ : kenney.driveway_long {
+      Position3: {0.25, 0.02, -0.8}
+      Scale3: {1, 1, 1.6}
+    }
   } else if p == 8 {
     if v == 0 {
       (IsA, kenney.suburban.building_k.a)
@@ -130,6 +138,10 @@ template RandomSuburban {
       (IsA, kenney.suburban.building_u.c)
     } else if v == 3 {
       (IsA, kenney.suburban.building_u.d)
+    }
+    _ : kenney.driveway_long {
+      Position3: {-0.35, 0.02, -0.85}
+      Scale3: {1, 1, 1.6}
     }
   }
 }

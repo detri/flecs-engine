@@ -8,6 +8,12 @@ camera {
     LookAt: {-50.376, 16.316, 62.206}
 }
 
-kenney.City city(20) {
+ground {
+  Position3: {}
+  Rgba: {30, 30, 30}
+  Box: {10000, 1, 10000}
+}
+
+kenney.City city(60) {
   Position3: {y: 1}
 }

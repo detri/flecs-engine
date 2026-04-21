@@ -5,6 +5,7 @@
 #include "common/cluster_wgsl.h"
 #include "common/pbr_functions_wgsl.h"
 #include "common/shadow_wgsl.h"
+#include "common/cloud_shadow_wgsl.h"
 #include "common/pbr_lighting_wgsl.h"
 #include "common/ibl_bindings_wgsl.h"
 #include "common/gpu_material_wgsl.h"
@@ -15,6 +16,7 @@ static const char *kShaderSource =
     FLECS_ENGINE_SHADER_COMMON_UNIFORMS_WGSL
     FLECS_ENGINE_SHADER_COMMON_IBL_BINDINGS_WGSL
     FLECS_ENGINE_SHADER_COMMON_SHADOW_WGSL
+    FLECS_ENGINE_SHADER_COMMON_CLOUD_SHADOW_WGSL
     FLECS_ENGINE_SHADER_COMMON_CLUSTER_WGSL
     FLECS_ENGINE_SHADER_COMMON_PBR_TEXTURES_WGSL
     FLECS_ENGINE_SHADER_COMMON_GPU_MATERIAL_WGSL

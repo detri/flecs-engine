@@ -35,7 +35,7 @@ time_of_day {
         moon_light: moon,
         stars: stars,
         atmosphere: view.atmosphere,
-        hour: 17.4,
+        hour: 15,
         day_of_year: 80,
         latitude: 25.2,
     }

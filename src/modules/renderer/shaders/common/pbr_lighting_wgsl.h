@@ -19,7 +19,7 @@
     "  let f0 = computeF0(albedo, metallic);\n" \
     "  let f90 = computeF90(f0);\n" \
     "  let ndotv = saturate(dot(n, v));\n" \
-    "  let shadow = computeShadow(world_pos);\n" \
+    "  let shadow = computeShadow(world_pos) * computeCloudShadow(world_pos);\n" \
     "  let direct = computeDirectLightingSplit(\n" \
     "    n, v, light.dir, h,\n" \
     "    albedo, metallic, direct_roughness,\n" \

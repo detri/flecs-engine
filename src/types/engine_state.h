@@ -177,6 +177,20 @@ typedef struct {
     flecsEngine_gpuTiming_t gpu_timing;
 
     flecsEngine_default_attr_cache_t *default_attr_cache;
+
+    /* Cloud-system shadow projection state. The cloud effect (if present)
+     * bakes a per-ground-point transmittance texture covering a world-aligned
+     * footprint around the camera and registers it here so PBR can sample it
+     * by world XZ. When no cloud effect is active, shadow_source_view stays
+     * NULL and PBR uses a fallback white texture (no shadow). */
+    struct {
+        WGPUTextureView shadow_source_view;
+        float origin_x;       /* world-X of footprint lower-left corner */
+        float origin_z;       /* world-Z of footprint lower-left corner */
+        float strength;
+        float inv_footprint;  /* 1 / footprint size in world units */
+        uint32_t version;     /* incremented when shadow_source_view changes */
+    } clouds;
 } FlecsEngineImpl;
 
 extern ECS_COMPONENT_DECLARE(FlecsEngineImpl);

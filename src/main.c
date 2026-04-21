@@ -251,19 +251,25 @@ void initEngine(
     (flecs_render_view_effect_t){ .enabled = false, .effect =
       flecsEngine_createEffect_sunShafts(world, view_entity,
         "sunShafts", 2, NULL) };
+  FlecsClouds clouds_settings = flecsEngine_cloudsSettingsDefault();
+  clouds_settings.atmosphere = view.atmosphere;
+  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
+    (flecs_render_view_effect_t){ .enabled = true, .effect =
+      flecsEngine_createEffect_clouds(world, view_entity,
+        "clouds", 3, &clouds_settings) };
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
     (flecs_render_view_effect_t){ .enabled = true, .effect =
       flecsEngine_createEffect_bloom(world, view_entity,
-        "bloom", 3, &bloom_settings) };
+        "bloom", 4, &bloom_settings) };
   ecs_entity_t auto_exposure_effect = flecsEngine_createEffect_autoExposure(
-    world, view_entity, "autoExposure", 4, &auto_exposure_settings);
+    world, view_entity, "autoExposure", 5, &auto_exposure_settings);
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
     (flecs_render_view_effect_t){ .enabled = true,
       .effect = auto_exposure_effect };
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
     (flecs_render_view_effect_t){ .enabled = true, .effect =
       flecsEngine_createEffect_tonyMcMapFace(world, view_entity,
-        "tonyMcMapFace", 5, auto_exposure_effect) };
+        "tonyMcMapFace", 6, auto_exposure_effect) };
 
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
     (flecs_render_view_effect_t){
@@ -271,7 +277,7 @@ void initEngine(
       .enabled = true,
 #endif
       .effect = flecsEngine_createEffect_gammaCorrect(world, view_entity,
-        "gammaCorrect", 6) };
+        "gammaCorrect", 7) };
 
   ecs_set_ptr(world, view_entity, FlecsRenderView, &view);
   ecs_set_ptr(world, view_entity, FlecsRenderBatchSet, &batch_set);

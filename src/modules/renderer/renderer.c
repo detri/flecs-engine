@@ -505,6 +505,7 @@ void FlecsEngineRendererImport(
     flecsEngine_heightFog_register(world);
     flecsEngine_ssao_register(world);
     flecsEngine_sunShafts_register(world);
+    flecsEngine_clouds_register(world);
     flecsEngine_autoExposure_register(world);
 
     /* Register FlecsTextureImpl (renderer-side companion for FlecsTexture) */

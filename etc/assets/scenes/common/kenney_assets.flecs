@@ -24,6 +24,9 @@ prefab fence {
 prefab path_stones {
   Gltf: {"etc/assets/kenney/city-kit-suburban/Models/GLB format/path-stones-long.glb"}
 }
+prefab driveway_long {
+  Gltf: {"etc/assets/kenney/city-kit-suburban/Models/GLB format/driveway-long.glb"}
+}
 
 suburban {
   prefab texture_a {

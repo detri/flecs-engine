@@ -11,7 +11,8 @@
     "  light_color : vec4<f32>,\n" \
     "  camera_pos : vec4<f32>,\n" \
     "  shadow_info : vec4<f32>,\n" \
-    "  ambient_light : vec4<f32>\n" \
+    "  ambient_light : vec4<f32>,\n" \
+    "  cloud_shadow_params : vec4<f32>\n" \
     "}\n" \
     "@group(0) @binding(0) var<uniform> uniforms : Uniforms;\n"
 

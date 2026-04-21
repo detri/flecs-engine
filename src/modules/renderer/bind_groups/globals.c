@@ -10,7 +10,7 @@ WGPUBindGroupLayout flecsEngine_globals_ensureBindLayout(
 
     flecsEngine_material_ensureBuffer(impl);
 
-    WGPUBindGroupLayoutEntry layout_entries[11] = {
+    WGPUBindGroupLayoutEntry layout_entries[12] = {
         { /* 0: Frame uniform (FlecsGpuUniforms) */
             .binding = 0,
             .visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment,
@@ -100,13 +100,24 @@ WGPUBindGroupLayout flecsEngine_globals_ensureBindLayout(
                 .type = WGPUBufferBindingType_ReadOnlyStorage,
                 .minBindingSize = sizeof(FlecsGpuLight)
             }
+        },
+        { /* 11: Baked cloud-shadow texture (.r = per-ground-point
+            * transmittance, sampled by world XZ in the footprint). Falls
+            * back to a 1x1 white texture when no cloud effect is active. */
+            .binding = 11,
+            .visibility = WGPUShaderStage_Fragment,
+            .texture = {
+                .sampleType = WGPUTextureSampleType_Float,
+                .viewDimension = WGPUTextureViewDimension_2D,
+                .multisampled = false
+            }
         }
     };
 
     impl->scene_bind_layout = wgpuDeviceCreateBindGroupLayout(
         impl->device,
         &(WGPUBindGroupLayoutDescriptor){
-            .entryCount = 11,
+            .entryCount = 12,
             .entries = layout_entries
         });
 
@@ -144,12 +155,16 @@ bool flecsEngine_globals_createBindGroup(
         return false;
     }
 
+    WGPUTextureView cloud_shadow_view = engine->clouds.shadow_source_view
+        ? engine->clouds.shadow_source_view
+        : engine->textures.fallback_white_view;
+
     view_impl->scene_bind_group = wgpuDeviceCreateBindGroup(
         engine->device,
         &(WGPUBindGroupDescriptor){
             .layout = bind_layout,
-            .entryCount = 11,
-            .entries = (WGPUBindGroupEntry[11]){
+            .entryCount = 12,
+            .entries = (WGPUBindGroupEntry[12]){
                 {
                     .binding = 0,
                     .buffer = view_impl->frame_uniform_buffer,
@@ -204,6 +219,10 @@ bool flecsEngine_globals_createBindGroup(
                     .buffer = engine->lighting.light_buffer,
                     .size = (uint64_t)engine->lighting.light_capacity *
                         sizeof(FlecsGpuLight)
+                },
+                {
+                    .binding = 11,
+                    .textureView = cloud_shadow_view
                 }
             }
         });

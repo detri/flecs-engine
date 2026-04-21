@@ -44,6 +44,9 @@ typedef struct {
     float camera_pos[4];
     float shadow_info[4];
     float ambient_light[4];
+    /* Cloud-shadow projection: xy = footprint origin (world XZ, lower-left
+     * corner), z = strength (0 disables), w = 1 / footprint size. */
+    float cloud_shadow_params[4];
 } FlecsGpuUniforms;
 
 extern ECS_COMPONENT_DECLARE(FlecsGpuUniforms);
