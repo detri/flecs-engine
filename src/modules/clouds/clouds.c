@@ -7,6 +7,9 @@
 
 ECS_COMPONENT_DECLARE(FlecsClouds);
 
+#define FLECS_CLOUDS_OD_SLAB_SCALE 80.0f
+#define FLECS_CLOUDS_FORCING_SCROLL 0.02f
+
 typedef struct FlecsCloudsImpl {
     WGPUBuffer uniform_buffer;
     WGPUTexture weather_texture;
@@ -14,7 +17,13 @@ typedef struct FlecsCloudsImpl {
     WGPUTexture noise_texture;
     WGPUTextureView noise_view;
     WGPUSampler repeat_sampler;
-    uint8_t *weather_cpu;        /* size = WEATHER_SIZE^2 * 4 */
+    uint8_t *weather_cpu;
+    uint8_t *weather_prev;
+    uint8_t *weather_target;
+    double weather_target_last_update;
+    float weather_target_last_coverage;
+    float wind_shift_x_accum;
+    float wind_shift_z_accum;
     double time_seconds;
     double weather_last_update;
     float weather_last_coverage;
@@ -402,6 +411,14 @@ static void flecsEngine_clouds_releaseResources(
         ecs_os_free(impl->weather_cpu);
         impl->weather_cpu = NULL;
     }
+    if (impl->weather_prev) {
+        ecs_os_free(impl->weather_prev);
+        impl->weather_prev = NULL;
+    }
+    if (impl->weather_target) {
+        ecs_os_free(impl->weather_target);
+        impl->weather_target = NULL;
+    }
 }
 
 ECS_DTOR(FlecsCloudsImpl, ptr, {
@@ -466,7 +483,7 @@ static void flecs_clouds_bakeWeather(
      * Initial bake; subsequent frames evolve `data` via flecs_clouds_evolveWeather.
      * Used at startup to seed the CA. */
     const uint32_t s = FLECS_CLOUDS_WEATHER_SIZE;
-    float scroll = time_offset * 0.02f;
+    float scroll = time_offset * FLECS_CLOUDS_FORCING_SCROLL;
     for (uint32_t y = 0; y < s; y++) {
         for (uint32_t x = 0; x < s; x++) {
             float u = (float)x / (float)s * 4.0f + scroll;
@@ -489,64 +506,15 @@ static void flecs_clouds_bakeWeather(
     }
 }
 
-/* Cellular automaton step on the weather coverage channel. Models three
- * simple processes:
- *   - Wind advection: shift the coverage field in the wind direction.
- *   - Diffusion: 3x3 box smoothing models how clumps soften and merge.
- *   - Forcing: blend toward a slowly-scrolled FBM target so the field doesn't
- *     decay to a uniform value (the FBM acts as a synoptic-scale forcing).
- * Cloud-type channel is updated by lighter forcing alone; it changes more
- * slowly than coverage, matching real weather where storm-vs-fair-weather
- * regimes evolve on slower timescales. */
-static void flecs_clouds_evolveWeather(
-    uint8_t *data,
+static void flecs_clouds_rebuildTargetCache(
+    FlecsCloudsImpl *impl,
     float coverage_bias,
-    float time_offset,
-    float dt_seconds,
-    float wind_x,
-    float wind_z)
+    float time_offset)
 {
     const int32_t s = (int32_t)FLECS_CLOUDS_WEATHER_SIZE;
-    /* Snapshot of previous step so neighbor reads are coherent. Re-allocated
-     * each step (small at 256k) — could be cached on the impl if hot. */
-    uint8_t *prev = ecs_os_malloc(s * s * 4);
-    memcpy(prev, data, (size_t)s * s * 4);
-
-    /* Convert wind (world units / s) into texel offsets. The texture covers
-     * weather_scale_km in world space; one texel is ~weather_scale_km*1000/s
-     * meters wide. We approximate weather_scale = 40 km here for the CA
-     * forcing strength; the CA isn't physically calibrated. */
-    float texels_per_meter = (float)s / 40000.0f;
-    float dx = -wind_x * dt_seconds * texels_per_meter;  /* downwind shift */
-    float dz = -wind_z * dt_seconds * texels_per_meter;
-    int32_t shift_x = (int32_t)dx;
-    int32_t shift_z = (int32_t)dz;
-
-    /* FBM forcing target — same shape as initial bake, scrolls slowly so the
-     * CA has something to relax toward. */
-    float scroll = time_offset * 0.02f;
-
+    float scroll = time_offset * FLECS_CLOUDS_FORCING_SCROLL;
     for (int32_t y = 0; y < s; y++) {
         for (int32_t x = 0; x < s; x++) {
-            /* Sample neighbors of the advected source position. */
-            int32_t sx = ((x + shift_x) % s + s) % s;
-            int32_t sy = ((y + shift_z) % s + s) % s;
-
-            /* 3x3 box-blur on R channel from the snapshot. */
-            float sum_r = 0.0f;
-            float sum_b = 0.0f;
-            for (int32_t dy = -1; dy <= 1; dy++) {
-                for (int32_t ddx = -1; ddx <= 1; ddx++) {
-                    int32_t nx = ((sx + ddx) % s + s) % s;
-                    int32_t ny = ((sy + dy) % s + s) % s;
-                    sum_r += (float)prev[(ny * s + nx) * 4 + 0];
-                    sum_b += (float)prev[(ny * s + nx) * 4 + 2];
-                }
-            }
-            float diffused_r = sum_r / 9.0f / 255.0f;
-            float diffused_b = sum_b / 9.0f / 255.0f;
-
-            /* Forcing target: same FBM as the initial bake. */
             float u = (float)x / (float)s * 4.0f + scroll;
             float v = (float)y / (float)s * 4.0f + scroll * 0.7f;
             float fbm_raw = flecs_clouds_fbm(u, v, 4, 4, 11u);
@@ -558,14 +526,78 @@ static void flecs_clouds_evolveWeather(
                 u * 0.7f + 3.0f, v * 0.7f + 3.0f, 4, 3, 23u);
             if (type_raw < 0.0f) type_raw = 0.0f;
             if (type_raw > 1.0f) type_raw = 1.0f;
+            uint8_t *t = &impl->weather_target[(y * s + x) * 2];
+            t[0] = (uint8_t)(target_r * 255.0f);
+            t[1] = (uint8_t)(type_raw * 255.0f);
+        }
+    }
+    impl->weather_target_last_update = impl->time_seconds;
+    impl->weather_target_last_coverage = coverage_bias;
+}
 
-            /* Blend toward target — small amount per step gives a long
-             * relaxation time so transients are visible. Coverage relaxes
-             * faster than cloud type. */
-            float lerp_r = 1.0f - expf(-dt_seconds * 0.6f);
-            float lerp_b = 1.0f - expf(-dt_seconds * 0.15f);
+/* Cellular automaton step on the weather coverage channel. Models three
+ * simple processes:
+ *   - Wind advection: shift the coverage field in the wind direction.
+ *   - Diffusion: 3x3 box smoothing models how clumps soften and merge.
+ *   - Forcing: blend toward a slowly-scrolled FBM target so the field doesn't
+ *     decay to a uniform value (the FBM acts as a synoptic-scale forcing).
+ * Cloud-type channel is updated by lighter forcing alone; it changes more
+ * slowly than coverage, matching real weather where storm-vs-fair-weather
+ * regimes evolve on slower timescales. */
+static void flecs_clouds_evolveWeather(
+    FlecsCloudsImpl *impl,
+    float dt_seconds,
+    float wind_x,
+    float wind_z,
+    float weather_scale_km)
+{
+    const int32_t s = (int32_t)FLECS_CLOUDS_WEATHER_SIZE;
+    uint8_t *data = impl->weather_cpu;
+    uint8_t *prev = impl->weather_prev;
+    memcpy(prev, data, (size_t)s * s * 4);
+
+    /* Convert wind (world units / s) into texel offsets using the user-
+     * configured footprint. Accumulate fractional shift across ticks so
+     * realistic wind speeds (where per-tick shift is << 1 texel) still
+     * advect the field over time. */
+    float footprint_m = weather_scale_km > 0.001f
+        ? weather_scale_km * 1000.0f : 40000.0f;
+    float texels_per_meter = (float)s / footprint_m;
+    impl->wind_shift_x_accum += -wind_x * dt_seconds * texels_per_meter;
+    impl->wind_shift_z_accum += -wind_z * dt_seconds * texels_per_meter;
+    int32_t shift_x = (int32_t)impl->wind_shift_x_accum;
+    int32_t shift_z = (int32_t)impl->wind_shift_z_accum;
+    impl->wind_shift_x_accum -= (float)shift_x;
+    impl->wind_shift_z_accum -= (float)shift_z;
+
+    const float inv_255 = 1.0f / 255.0f;
+    const float lerp_r = 1.0f - expf(-dt_seconds * 0.6f);
+    const float lerp_b = 1.0f - expf(-dt_seconds * 0.15f);
+
+    for (int32_t y = 0; y < s; y++) {
+        for (int32_t x = 0; x < s; x++) {
+            int32_t sx = ((x + shift_x) % s + s) % s;
+            int32_t sy = ((y + shift_z) % s + s) % s;
+
+            float sum_r = 0.0f;
+            float sum_b = 0.0f;
+            for (int32_t dy = -1; dy <= 1; dy++) {
+                for (int32_t ddx = -1; ddx <= 1; ddx++) {
+                    int32_t nx = ((sx + ddx) % s + s) % s;
+                    int32_t ny = ((sy + dy) % s + s) % s;
+                    sum_r += (float)prev[(ny * s + nx) * 4 + 0];
+                    sum_b += (float)prev[(ny * s + nx) * 4 + 2];
+                }
+            }
+            float diffused_r = sum_r / 9.0f * inv_255;
+            float diffused_b = sum_b / 9.0f * inv_255;
+
+            uint8_t *t = &impl->weather_target[(y * s + x) * 2];
+            float target_r = (float)t[0] * inv_255;
+            float target_b = (float)t[1] * inv_255;
+
             float new_r = diffused_r + (target_r - diffused_r) * lerp_r;
-            float new_b = diffused_b + (type_raw - diffused_b) * lerp_b;
+            float new_b = diffused_b + (target_b - diffused_b) * lerp_b;
 
             if (new_r < 0.0f) new_r = 0.0f;
             if (new_r > 1.0f) new_r = 1.0f;
@@ -579,8 +611,6 @@ static void flecs_clouds_evolveWeather(
             px[3] = 255u;
         }
     }
-
-    ecs_os_free(prev);
 }
 
 static void flecs_clouds_bakeNoise(uint8_t *data)
@@ -682,13 +712,17 @@ static bool flecsEngine_clouds_setup(
 
     impl.weather_cpu = ecs_os_malloc(
         FLECS_CLOUDS_WEATHER_SIZE * FLECS_CLOUDS_WEATHER_SIZE * 4u);
+    impl.weather_prev = ecs_os_malloc(
+        FLECS_CLOUDS_WEATHER_SIZE * FLECS_CLOUDS_WEATHER_SIZE * 4u);
+    impl.weather_target = ecs_os_malloc(
+        FLECS_CLOUDS_WEATHER_SIZE * FLECS_CLOUDS_WEATHER_SIZE * 2u);
     flecs_clouds_bakeWeather(impl.weather_cpu, 0.5f, 0.0f);
+    flecs_clouds_rebuildTargetCache(&impl, 0.5f, 0.0f);
     bool ok = flecs_clouds_uploadTexture(
         engine, FLECS_CLOUDS_WEATHER_SIZE, impl.weather_cpu,
         &impl.weather_texture, &impl.weather_view);
     if (!ok) {
-        ecs_os_free(impl.weather_cpu);
-        wgpuBufferRelease(impl.uniform_buffer);
+        flecsEngine_clouds_releaseResources(&impl);
         return false;
     }
     impl.weather_last_coverage = 0.5f;
@@ -863,89 +897,12 @@ static bool flecsEngine_clouds_setup(
             flecsEngine_clouds_releaseResources(&impl);
             return false;
         }
-
-        /* Initial bake at setup so frame 1 PBR has valid shadow data. PBR
-         * runs in the geometry phase BEFORE the cloud effect's render
-         * callback, so without this initial bake, frame 1 sees a blank
-         * shadow texture. We use sensible defaults: a slab footprint
-         * centered at world origin with the user's coverage and a default
-         * sun direction (straight up). Subsequent frames re-bake with the
-         * real sun direction in render_callback. */
-        const FlecsClouds *initial = ecs_get(world, effect_entity, FlecsClouds);
-        FlecsClouds defaults_init = flecsEngine_cloudsSettingsDefault();
-        if (!initial) initial = &defaults_init;
-        float footprint_init = initial->shadow_scale_km > 0.001f
-            ? initial->shadow_scale_km * 1000.0f : 4000.0f;
-        float low_y_init = initial->low_altitude_km * 1000.0f;
-        float high_y_init = initial->high_altitude_km * 1000.0f;
-        FlecsShadowBakeUniform sb = {0};
-        sb.sun_dir[0] = 0.0f;
-        sb.sun_dir[1] = 1.0f;
-        sb.sun_dir[2] = 0.0f;
-        sb.params[0] = -footprint_init * 0.5f;
-        sb.params[1] = -footprint_init * 0.5f;
-        sb.params[2] = footprint_init;
-        sb.params[3] = low_y_init;
-        sb.params2[0] = high_y_init;
-        sb.params2[1] = 1.0f /
-            (initial->weather_scale_km > 0.001f
-                ? initial->weather_scale_km * 1000.0f : 20000.0f);
-        sb.params2[2] = 1.0f /
-            (initial->noise_scale_km > 0.001f
-                ? initial->noise_scale_km * 1000.0f : 4000.0f);
-        sb.params2[3] = 0.0f;
-        sb.params3[0] = initial->wind_x;
-        sb.params3[1] = initial->wind_z;
-        sb.params3[2] = 0.0f;  /* coverage is baked into weather.r */
-        /* Optical depth scale: clouds->density is the per-sample extinction
-         * the sky shader uses. Multiplied by an empirical slab constant so a
-         * typical density (0.05) gives visually-correct cumulus shadows. */
-        sb.params3[3] = initial->density * 80.0f;
-        wgpuQueueWriteBuffer(engine->queue, impl.shadow_uniform_buffer, 0,
-            &sb, sizeof(sb));
-
-        WGPUCommandEncoder init_enc = wgpuDeviceCreateCommandEncoder(
-            engine->device, NULL);
-        if (init_enc) {
-            WGPURenderPassColorAttachment att = {
-                .view = impl.shadow_view,
-                WGPU_DEPTH_SLICE
-                .loadOp = WGPULoadOp_Clear,
-                .storeOp = WGPUStoreOp_Store,
-                .clearValue = (WGPUColor){ 1.0, 1.0, 1.0, 1.0 }
-            };
-            WGPURenderPassEncoder p = wgpuCommandEncoderBeginRenderPass(
-                init_enc, &(WGPURenderPassDescriptor){
-                    .colorAttachmentCount = 1,
-                    .colorAttachments = &att
-                });
-            wgpuRenderPassEncoderSetPipeline(p, impl.shadow_bake_pipeline);
-            wgpuRenderPassEncoderSetBindGroup(p, 0,
-                impl.shadow_bake_bind_group, 0, NULL);
-            wgpuRenderPassEncoderDraw(p, 3, 1, 0, 0);
-            wgpuRenderPassEncoderEnd(p);
-            wgpuRenderPassEncoderRelease(p);
-            WGPUCommandBuffer cb = wgpuCommandEncoderFinish(init_enc, NULL);
-            wgpuQueueSubmit(engine->queue, 1, &cb);
-            wgpuCommandBufferRelease(cb);
-            wgpuCommandEncoderRelease(init_enc);
-        }
     }
 
-    /* Publish initial shadow registration: zero strength so the first frame
-     * doesn't render with stale shadow data. The bind callback re-publishes
-     * with the up-to-date origin/footprint after the first bake. */
-    {
-        const FlecsClouds *initial = ecs_get(world, effect_entity, FlecsClouds);
-        FlecsClouds defaults = flecsEngine_cloudsSettingsDefault();
-        if (!initial) initial = &defaults;
-        float footprint_m = initial->shadow_scale_km > 0.001f
-            ? initial->shadow_scale_km * 1000.0f : 4000.0f;
-        flecs_clouds_publishShadow(
-            (FlecsEngineImpl*)engine, impl.shadow_view,
-            -footprint_m * 0.5f, -footprint_m * 0.5f,
-            1.0f / footprint_m, initial->shadow_strength);
-    }
+    /* Shadow view is registered by the first render_callback, not at setup.
+     * Frame 1 sees engine->clouds.shadow_source_view == NULL, so globals.c
+     * binds the fallback white texture and PBR reads "no shadow" — honest
+     * and avoids baking with a fake sun direction. */
 
     ecs_set_ptr((ecs_world_t*)world, effect_entity, FlecsCloudsImpl, &impl);
     *entry_count = 7;
@@ -1053,20 +1010,68 @@ static void flecs_clouds_fillUniform(
     uniform->params2[2] = 1.0f;
     uniform->params2[3] = 200000.0f; /* max march distance in world units */
 
-    uniform->ambient_top[0] =
-        flecsEngine_colorChannelToFloat(clouds->ambient_top.r);
-    uniform->ambient_top[1] =
-        flecsEngine_colorChannelToFloat(clouds->ambient_top.g);
-    uniform->ambient_top[2] =
-        flecsEngine_colorChannelToFloat(clouds->ambient_top.b);
-    uniform->ambient_top[3] = 1.0f;
-    uniform->ambient_bottom[0] =
-        flecsEngine_colorChannelToFloat(clouds->ambient_bottom.r);
-    uniform->ambient_bottom[1] =
-        flecsEngine_colorChannelToFloat(clouds->ambient_bottom.g);
-    uniform->ambient_bottom[2] =
-        flecsEngine_colorChannelToFloat(clouds->ambient_bottom.b);
-    uniform->ambient_bottom[3] = 1.0f;
+    /* When an atmosphere is attached, derive ambient from sun transmittance +
+     * sun-altitude tint so cloud colors track time-of-day automatically. Top
+     * (cloud crown) leans blue (sees the whole sky dome); bottom (cloud base)
+     * picks up more warm direct-sun + ground bounce. Night floor comes from
+     * atmosphere's night_tint. Otherwise fall back to user-provided colors. */
+    bool ambient_from_atmos = false;
+    if (clouds->atmosphere) {
+        const FlecsAtmosphere *atm = ecs_get(
+            world, clouds->atmosphere, FlecsAtmosphere);
+        if (atm) {
+            float sun_cos_z = uniform->sun_dir[1];
+            if (sun_cos_z < -1.0f) sun_cos_z = -1.0f;
+            if (sun_cos_z > 1.0f) sun_cos_z = 1.0f;
+            float sun_t[3] = {0};
+            flecsEngine_atmos_sunTransmittance(atm, sun_cos_z, sun_t);
+
+            float day = sun_cos_z > 0.0f ? sun_cos_z : 0.0f;
+            float night = 1.0f - day;
+            const float sky_blue[3] = { 0.45f, 0.65f, 1.0f };
+
+            float night_scale = atm->night_intensity > 0.0f
+                ? atm->night_intensity : 0.0f;
+            float nr = flecsEngine_colorChannelToFloat(atm->night_tint.r)
+                * night_scale * night;
+            float ng = flecsEngine_colorChannelToFloat(atm->night_tint.g)
+                * night_scale * night;
+            float nb = flecsEngine_colorChannelToFloat(atm->night_tint.b)
+                * night_scale * night;
+
+            uniform->ambient_top[0] =
+                sky_blue[0] * day + sun_t[0] * 0.25f * day + nr;
+            uniform->ambient_top[1] =
+                sky_blue[1] * day + sun_t[1] * 0.25f * day + ng;
+            uniform->ambient_top[2] =
+                sky_blue[2] * day + sun_t[2] * 0.25f * day + nb;
+            uniform->ambient_top[3] = 1.0f;
+            uniform->ambient_bottom[0] =
+                sky_blue[0] * 0.35f * day + sun_t[0] * 0.5f * day + nr * 0.4f;
+            uniform->ambient_bottom[1] =
+                sky_blue[1] * 0.35f * day + sun_t[1] * 0.5f * day + ng * 0.4f;
+            uniform->ambient_bottom[2] =
+                sky_blue[2] * 0.30f * day + sun_t[2] * 0.5f * day + nb * 0.4f;
+            uniform->ambient_bottom[3] = 1.0f;
+            ambient_from_atmos = true;
+        }
+    }
+    if (!ambient_from_atmos) {
+        uniform->ambient_top[0] =
+            flecsEngine_colorChannelToFloat(clouds->ambient_top.r);
+        uniform->ambient_top[1] =
+            flecsEngine_colorChannelToFloat(clouds->ambient_top.g);
+        uniform->ambient_top[2] =
+            flecsEngine_colorChannelToFloat(clouds->ambient_top.b);
+        uniform->ambient_top[3] = 1.0f;
+        uniform->ambient_bottom[0] =
+            flecsEngine_colorChannelToFloat(clouds->ambient_bottom.r);
+        uniform->ambient_bottom[1] =
+            flecsEngine_colorChannelToFloat(clouds->ambient_bottom.g);
+        uniform->ambient_bottom[2] =
+            flecsEngine_colorChannelToFloat(clouds->ambient_bottom.b);
+        uniform->ambient_bottom[3] = 1.0f;
+    }
 }
 
 /* Per-frame state update: writes both uniform buffers (composite + bake),
@@ -1075,7 +1080,7 @@ static void flecs_clouds_fillUniform(
  * bind_callback then only fills bind-group entries. */
 static bool flecs_clouds_updateState(
     const ecs_world_t *world,
-    const FlecsEngineImpl *engine,
+    FlecsEngineImpl *engine,
     ecs_entity_t effect_entity,
     FlecsCloudsImpl *impl,
     const FlecsClouds *clouds)
@@ -1135,12 +1140,12 @@ static bool flecs_clouds_updateState(
          * dark shadow). 80 is an empirical slab-integration constant that
          * makes the default density (0.05) land at a reasonable shadow
          * intensity without overwhelming the scene. */
-        sb.params3[3] = clouds->density * 80.0f;
+        sb.params3[3] = clouds->density * FLECS_CLOUDS_OD_SLAB_SCALE;
         wgpuQueueWriteBuffer(engine->queue, impl->shadow_uniform_buffer, 0,
             &sb, sizeof(sb));
 
         flecs_clouds_publishShadow(
-            (FlecsEngineImpl*)engine, impl->shadow_view,
+            engine, impl->shadow_view,
             origin_x, origin_z, impl->shadow_inv_footprint,
             clouds->shadow_strength);
     }
@@ -1152,17 +1157,26 @@ static bool flecs_clouds_updateState(
     bool coverage_changed =
         fabsf(clouds->coverage - impl->weather_last_coverage) > 1e-3f;
     double dt_since_update = impl->time_seconds - impl->weather_last_update;
-    if (impl->weather_cpu &&
+    if (impl->weather_cpu && impl->weather_prev && impl->weather_target &&
         (dt_since_update > 0.2 || coverage_changed))
     {
+        bool target_coverage_changed = fabsf(clouds->coverage -
+            impl->weather_target_last_coverage) > 1e-3f;
+        double dt_since_target = impl->time_seconds -
+            impl->weather_target_last_update;
+        if (target_coverage_changed || dt_since_target > 5.0) {
+            flecs_clouds_rebuildTargetCache(impl, clouds->coverage,
+                (float)impl->time_seconds);
+        }
+
         if (coverage_changed) {
             flecs_clouds_bakeWeather(impl->weather_cpu,
                 clouds->coverage, (float)impl->time_seconds);
         } else {
-            flecs_clouds_evolveWeather(impl->weather_cpu,
-                clouds->coverage, (float)impl->time_seconds,
+            flecs_clouds_evolveWeather(impl,
                 (float)dt_since_update,
-                clouds->wind_x, clouds->wind_z);
+                clouds->wind_x, clouds->wind_z,
+                clouds->weather_scale_km);
         }
         WGPUTexelCopyTextureInfo dst = {
             .texture = impl->weather_texture,
@@ -1203,7 +1217,7 @@ static bool flecsEngine_clouds_bind(
 
     if (!view_impl || !view_impl->depth_texture_view) return false;
 
-    FlecsCloudsImpl *impl = ecs_get(
+    const FlecsCloudsImpl *impl = ecs_get(
         world, effect_entity, FlecsCloudsImpl);
     if (!impl || !impl->uniform_buffer) return false;
 
