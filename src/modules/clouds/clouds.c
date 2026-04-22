@@ -7,7 +7,11 @@
 
 ECS_COMPONENT_DECLARE(FlecsClouds);
 
-#define FLECS_CLOUDS_OD_SLAB_SCALE 80.0f
+/* Slab optical-depth scale used only by the shadow bake. Deliberately
+ * decoupled from clouds->density so that an overcast sky (high coverage,
+ * low density) still casts full shadows — shadow strength follows
+ * coverage + noise presence per pixel, not the extinction scale. */
+#define FLECS_CLOUDS_SHADOW_OD_SCALE 4.0f
 #define FLECS_CLOUDS_FORCING_SCROLL 0.02f
 
 typedef struct FlecsCloudsImpl {
@@ -159,17 +163,13 @@ static const char *kShadowBakeShader =
     "  let noise = textureSampleLevel(noise_texture, repeat_sampler, n_uv, 0.0);\n"
     "  let coverage = saturate(weather.r + u.params3.z);\n"
     "  if (coverage < 0.001) { return vec4<f32>(1.0, 0.0, 0.0, 1.0); }\n"
-    "  let cloud_type = weather.b;\n"
-    "  let hgrad = h_density_mid(cloud_type);\n"
-    "  let base = noise.r;\n"
-    "  let detail = noise.g * 0.625 + noise.b * 0.25 + noise.a * 0.125;\n"
-    "  var d = base * hgrad;\n"
-    "  d = saturate(remap(d, 1.0 - coverage, 1.0, 0.0, 1.0)) * coverage;\n"
-    "  let erode_mask = 0.7;\n"
-    "  d = saturate(d - (1.0 - detail) * 0.4 * erode_mask);\n"
-    /* Approximate optical depth through the slab in the sun direction. The\n"
-     * `density_scale` constant tunes how dark a fully-opaque cloud renders;\n"
-     * 5 gives reasonable cumulus-like deep shadow. */
+    /* Shadow density = coverage directly. The sky shader uses noise-based\n"
+     * erosion for cloud silhouettes, but for ground shadows we want uniform\n"
+     * darkness under overcast (coverage ≈ 1 → shadow ≈ 0) — noise-eroded\n"
+     * density leaves sunlight gaps even under full cover, letting geometry\n"
+     * shadows show through. Shadow pattern still follows the coverage\n"
+     * field's FBM shape, just without the per-pixel erosion. */
+    "  let d = coverage;\n"
     "  let od = d * u.params3.w;\n"
     "  let trans = exp(-od);\n"
     "  return vec4<f32>(trans, 0.0, 0.0, 1.0);\n"
@@ -1225,12 +1225,9 @@ static bool flecs_clouds_updateState(
         sb.params3[0] = uniform.params2[0];         /* wind_x */
         sb.params3[1] = uniform.params2[1];         /* wind_z */
         sb.params3[2] = uniform.params1[0];         /* coverage_bias */
-        /* Optical depth scale: scales with clouds->density so denser clouds
-         * cast deeper shadows (thin cirrus = faint shadow, thick cumulus =
-         * dark shadow). 80 is an empirical slab-integration constant that
-         * makes the default density (0.05) land at a reasonable shadow
-         * intensity without overwhelming the scene. */
-        sb.params3[3] = clouds->density * FLECS_CLOUDS_OD_SLAB_SCALE;
+        /* Fixed optical-depth scale for shadows — independent of density
+         * so overcast coverage always casts full shadows. */
+        sb.params3[3] = FLECS_CLOUDS_SHADOW_OD_SCALE;
         wgpuQueueWriteBuffer(engine->queue, impl->shadow_uniform_buffer, 0,
             &sb, sizeof(sb));
 

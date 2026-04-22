@@ -24,7 +24,15 @@
     "  }\n" \
     "  let trans = textureSampleLevel(\n" \
     "    cloud_shadow_tex, ibl_sampler, uv, 0.0).r;\n" \
-    "  return mix(1.0, trans, strength);\n" \
+    /* Remap the raw Beer-Lambert transmittance so fragments under heavy\n"
+     * cloud (trans well below 1) snap to full shadow. Without this, even\n"
+     * trans ≈ 0.02 leaks ~2% of direct sun, which is enough for geometry\n"
+     * shadows to remain visible as faint contrast inside a cloud-shadowed\n"
+     * region. smoothstep(0.1, 0.6, trans) gives: trans <= 0.1 → 0\n"
+     * (opaque cover = full shadow), trans >= 0.6 → 1 (clear = no shadow),\n"
+     * smooth edge between. */ \
+    "  let factor = smoothstep(0.1, 0.6, trans);\n" \
+    "  return mix(1.0, factor, strength);\n" \
     "}\n"
 
 #endif
