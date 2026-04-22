@@ -22,8 +22,6 @@ typedef struct FlecsCloudsImpl {
     uint8_t *weather_target;
     double weather_target_last_update;
     float weather_target_last_coverage;
-    float wind_shift_x_accum;
-    float wind_shift_z_accum;
     double time_seconds;
     double weather_last_update;
     float weather_last_coverage;
@@ -42,6 +40,23 @@ typedef struct FlecsCloudsImpl {
     float shadow_origin_x;
     float shadow_origin_z;
     float shadow_inv_footprint;
+    /* Low-res cloud pass resources (used when FlecsClouds.render_scale < 1).
+     * The cloud raymarch writes to lowres_view at scaled resolution, then the
+     * upsample pass composites it into the full-res output, keeping
+     * foreground pixels at full resolution via a depth check. */
+    WGPUTexture lowres_texture;
+    WGPUTextureView lowres_view;
+    uint32_t lowres_width;
+    uint32_t lowres_height;
+    WGPUTextureFormat lowres_format;
+    WGPUBindGroupLayout upsample_layout;
+    WGPURenderPipeline upsample_pipeline;
+    WGPUBindGroup upsample_bind_group;
+    WGPUTextureView upsample_bind_input_view;
+    WGPUTextureView upsample_bind_depth_view;
+    WGPUTextureView upsample_bind_cloud_view;
+    WGPUTextureFormat upsample_pipeline_format;
+    WGPUSampler upsample_sampler;
 } FlecsCloudsImpl;
 
 ECS_COMPONENT_DECLARE(FlecsCloudsImpl);
@@ -140,8 +155,8 @@ static const char *kShadowBakeShader =
     /* Same sampling pattern as the sky shader: weather coverage + noise\n"
      * detail, scrolled by wind. */
     "  let wind = vec2<f32>(u.params3.x, u.params3.y) * u.params2.w;\n"
-    "  let w_uv = cloud_xz * u.params2.y + wind * u.params2.y * 0.05;\n"
-    "  let n_uv = cloud_xz * u.params2.z + wind * u.params2.z;\n"
+    "  let w_uv = cloud_xz * u.params2.y - wind * u.params2.y;\n"
+    "  let n_uv = cloud_xz * u.params2.z - wind * u.params2.z;\n"
     "  let weather = textureSampleLevel(weather_texture, repeat_sampler, w_uv, 0.0);\n"
     "  let noise = textureSampleLevel(noise_texture, repeat_sampler, n_uv, 0.0);\n"
     "  let coverage = saturate(weather.r + u.params3.z);\n"
@@ -183,6 +198,7 @@ static const char *kCloudsShader =
     "@group(0) @binding(5) var noise_texture : texture_2d<f32>;\n"
     "@group(0) @binding(6) var repeat_sampler : sampler;\n"
     "const STEPS : i32 = 32;\n"
+    "const MAX_STEPS : i32 = 128;\n"
     "const LIGHT_STEPS : i32 = 4;\n"
     "fn reconstruct_world_pos(uv : vec2<f32>, depth : f32) -> vec3<f32> {\n"
     "  let ndc = vec4<f32>(uv.x * 2.0 - 1.0, (1.0 - uv.y) * 2.0 - 1.0, depth, 1.0);\n"
@@ -210,8 +226,8 @@ static const char *kCloudsShader =
     /* returns (density, cloud_type) */
     "  let h = saturate((p.y - low_y) / max(high_y - low_y, 1e-3));\n"
     "  let wind = vec2<f32>(u.params2.x, u.params2.y) * u.params0.w;\n"
-    "  let w_uv = p.xz * u.params1.y + wind * u.params1.y * 0.05;\n"
-    "  let n_uv = p.xz * u.params1.z + wind * u.params1.z;\n"
+    "  let w_uv = p.xz * u.params1.y - wind * u.params1.y;\n"
+    "  let n_uv = p.xz * u.params1.z - wind * u.params1.z;\n"
     "  let weather = textureSampleLevel(weather_texture, repeat_sampler, w_uv, 0.0);\n"
     "  let noise = textureSampleLevel(noise_texture, repeat_sampler, n_uv, 0.0);\n"
     "  let coverage = saturate(weather.r + u.params1.x);\n"
@@ -242,16 +258,28 @@ static const char *kCloudsShader =
     "  return mix(hg(cos_t, g0), hg(cos_t, g1), 0.5);\n"
     "}\n"
     "fn light_march(p_in : vec3<f32>, low_y : f32, high_y : f32) -> f32 {\n"
-    /* 4 progressively larger steps toward the sun, returns optical depth. */
+    /* Schneider 2015 §57 cone-sampled light march: 4 short steps toward the
+     * sun with jittered cone offsets (wider at later samples) for diffuse
+     * self-shadow, plus one long-distance sample for multi-scatter shadow. */
     "  var od : f32 = 0.0;\n"
-    "  var step : f32 = 30.0;\n"
     "  var p = p_in;\n"
+    "  let step : f32 = 120.0;\n"
+    "  let cone_r : f32 = 30.0;\n"
     "  for (var i : i32 = 0; i < LIGHT_STEPS; i = i + 1) {\n"
-    "    p = p + u.sun_dir.xyz * step;\n"
+    "    let fi = f32(i);\n"
+    "    let h1 = fract(sin(fi * 12.9898 + 4.1414) * 43758.5453) * 2.0 - 1.0;\n"
+    "    let h2 = fract(sin(fi * 78.233 + 27.182) * 43758.5453) * 2.0 - 1.0;\n"
+    "    let h3 = fract(sin(fi * 37.719 + 3.14159) * 43758.5453) * 2.0 - 1.0;\n"
+    "    let cone = vec3<f32>(h1, h2, h3) * cone_r * fi;\n"
+    "    p = p + u.sun_dir.xyz * step + cone;\n"
     "    if (p.y > high_y || p.y < low_y) { break; }\n"
     "    let s = sample_density(p, low_y, high_y);\n"
     "    od = od + s.x * step;\n"
-    "    step = step * 2.0;\n"
+    "  }\n"
+    "  let far_p = p_in + u.sun_dir.xyz * 2000.0;\n"
+    "  if (far_p.y < high_y && far_p.y > low_y) {\n"
+    "    let s = sample_density(far_p, low_y, high_y);\n"
+    "    od = od + s.x * 500.0;\n"
     "  }\n"
     "  return od;\n"
     "}\n"
@@ -310,12 +338,12 @@ static const char *kCloudsShader =
     /* Horizon fade so the very-distant edge softens into atmosphere. */
     "  let horizon_fade = smoothstep(-0.02, 0.05, d.y);\n"
     "  let extinction = max(u.params0.z, 1e-4);\n"
-    /* Cap step size so near-horizon rays don't accumulate giant slabs of\n"
-     * density per sample. STEPS is the upper bound. */
+    /* Cap step size so near-horizon rays don't accumulate giant slabs of
+     * density per sample. Loop runs up to MAX_STEPS and exits when t reaches
+     * the slab far boundary, so long grazing rays still traverse the slab. */
     "  let max_dt : f32 = 200.0;\n"
     "  let raw_dt = (t_exit - t_enter) / f32(STEPS);\n"
     "  let dt = min(raw_dt, max_dt);\n"
-    "  let actual_steps = i32(min(f32(STEPS), (t_exit - t_enter) / dt));\n"
     "  let cos_sun = dot(d, u.sun_dir.xyz);\n"
     /* Wrenninge multi-scattering octaves (Hillaire 2016 §5.8). N=3 sums
      * three increasingly-attenuated, increasingly-isotropic contributions
@@ -337,11 +365,12 @@ static const char *kCloudsShader =
     "  }\n"
     "  var transmittance : f32 = 1.0;\n"
     "  var scattered : vec3<f32> = vec3<f32>(0.0);\n"
-    /* Stochastic offset per pixel to break banding. */
-    "  let jitter = fract(sin(dot(in.uv * dims_f, vec2<f32>(12.9898, 78.233))) * 43758.5453);\n"
+    /* Stochastic offset per pixel and per frame to break banding and let any
+     * external temporal accumulation average out the noise over time. */
+    "  let jitter = fract(sin(dot(in.uv * dims_f + vec2<f32>(u.params0.w * 137.135), vec2<f32>(12.9898, 78.233))) * 43758.5453);\n"
     "  var t = t_enter + dt * jitter;\n"
-    "  for (var i : i32 = 0; i < actual_steps; i = i + 1) {\n"
-    "    if (transmittance < 0.01) { break; }\n"
+    "  for (var i : i32 = 0; i < MAX_STEPS; i = i + 1) {\n"
+    "    if (transmittance < 0.01 || t >= t_exit) { break; }\n"
     "    let p = cam + d * t;\n"
     "    let s = sample_density(p, low_y, high_y);\n"
     "    let dens = s.x;\n"
@@ -366,9 +395,10 @@ static const char *kCloudsShader =
     "      var Lscat = vec3<f32>(0.0);\n"
     "      for (var k : i32 = 0; k < MS_OCT; k = k + 1) {\n"
     "        let sun_t_k = pow(sun_t, ms_b_pow[k]);\n"
-    "        let sun_term = u.sun_color.rgb * sun_t_k * ms_phase[k] * powder;\n"
-    "        Lscat = Lscat + (sun_term + ambient * ms_a_pow[k]) * ms_a_pow[k];\n"
+    "        let sun_term = u.sun_color.rgb * sun_t_k * ms_phase[k];\n"
+    "        Lscat = Lscat + (sun_term + ambient) * ms_a_pow[k];\n"
     "      }\n"
+    "      Lscat = Lscat * powder;\n"
     "      let trans_step = exp(-sigma_t * dt);\n"
     "      let integ = Lscat * (1.0 - trans_step);\n"
     "      scattered = scattered + transmittance * integ;\n"
@@ -392,6 +422,29 @@ static ecs_entity_t flecsEngine_clouds_shader(
         });
 }
 
+/* Upsample/composite pass: samples full-res input + full-res depth + low-res
+ * cloud composite. For foreground pixels (depth < 0.9999) we pass through
+ * the full-res input so geometry stays sharp; for sky pixels we return the
+ * bilinear-upsampled low-res cloud composite. */
+static const char *kCloudUpsampleShader =
+    FLECS_ENGINE_FULLSCREEN_VS_WGSL
+    "@group(0) @binding(0) var input_texture : texture_2d<f32>;\n"
+    "@group(0) @binding(1) var input_sampler : sampler;\n"
+    "@group(0) @binding(2) var depth_texture : texture_depth_2d;\n"
+    "@group(0) @binding(3) var cloud_texture : texture_2d<f32>;\n"
+    "@group(0) @binding(4) var cloud_sampler : sampler;\n"
+    "@fragment fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {\n"
+    "  let dims = textureDimensions(depth_texture);\n"
+    "  let dims_f = vec2<f32>(f32(dims.x), f32(dims.y));\n"
+    "  let clamped_uv = clamp(in.uv, vec2<f32>(0.0), vec2<f32>(0.9999));\n"
+    "  let texel = vec2<i32>(clamped_uv * dims_f);\n"
+    "  let depth = textureLoad(depth_texture, texel, 0);\n"
+    "  if (depth < 0.9999) {\n"
+    "    return textureSample(input_texture, input_sampler, in.uv);\n"
+    "  }\n"
+    "  return textureSample(cloud_texture, cloud_sampler, in.uv);\n"
+    "}\n";
+
 static void flecsEngine_clouds_releaseResources(
     FlecsCloudsImpl *impl)
 {
@@ -407,6 +460,12 @@ static void flecsEngine_clouds_releaseResources(
     FLECS_WGPU_RELEASE(impl->shadow_bake_bind_group, wgpuBindGroupRelease);
     FLECS_WGPU_RELEASE(impl->shadow_bake_pipeline, wgpuRenderPipelineRelease);
     FLECS_WGPU_RELEASE(impl->shadow_bake_layout, wgpuBindGroupLayoutRelease);
+    FLECS_WGPU_RELEASE(impl->lowres_view, wgpuTextureViewRelease);
+    FLECS_WGPU_RELEASE(impl->lowres_texture, wgpuTextureRelease);
+    FLECS_WGPU_RELEASE(impl->upsample_bind_group, wgpuBindGroupRelease);
+    FLECS_WGPU_RELEASE(impl->upsample_pipeline, wgpuRenderPipelineRelease);
+    FLECS_WGPU_RELEASE(impl->upsample_layout, wgpuBindGroupLayoutRelease);
+    FLECS_WGPU_RELEASE(impl->upsample_sampler, wgpuSamplerRelease);
     if (impl->weather_cpu) {
         ecs_os_free(impl->weather_cpu);
         impl->weather_cpu = NULL;
@@ -476,6 +535,54 @@ static float flecs_clouds_fbm(float x, float y, int32_t base_period, int32_t oct
     return sum / total;
 }
 
+/* Tileable 2D Worley (cellular) noise. Features are unit-cell jittered points;
+ * output is 1 - dist_to_nearest, so dense regions are bright. This is the
+ * building block for Schneider 2015's cumulus-billow base noise. */
+static float flecs_clouds_worley(float x, float y, int32_t period, uint32_t seed)
+{
+    int32_t xi = (int32_t)floorf(x);
+    int32_t yi = (int32_t)floorf(y);
+    float fx = x - (float)xi;
+    float fy = y - (float)yi;
+    float min_d2 = 1e10f;
+    for (int32_t dy = -1; dy <= 1; dy++) {
+        for (int32_t dx = -1; dx <= 1; dx++) {
+            int32_t cx = ((xi + dx) % period + period) % period;
+            int32_t cy = ((yi + dy) % period + period) % period;
+            uint32_t h = flecs_clouds_hash(cx, cy, seed);
+            float jx = (float)(h & 0xFFFF) / 65535.0f;
+            float jy = (float)((h >> 16) & 0xFFFF) / 65535.0f;
+            float ex = (float)dx + jx - fx;
+            float ey = (float)dy + jy - fy;
+            float d2 = ex * ex + ey * ey;
+            if (d2 < min_d2) min_d2 = d2;
+        }
+    }
+    float d = sqrtf(min_d2);
+    float r = 1.0f - d;
+    if (r < 0.0f) r = 0.0f;
+    if (r > 1.0f) r = 1.0f;
+    return r;
+}
+
+static float flecs_clouds_worley_fbm(float x, float y, int32_t base_period, int32_t octaves, uint32_t seed)
+{
+    float sum = 0.0f;
+    float amp = 0.5f;
+    float total = 0.0f;
+    int32_t period = base_period;
+    for (int32_t i = 0; i < octaves; i++) {
+        sum += amp * flecs_clouds_worley(
+            x * (float)period / (float)base_period,
+            y * (float)period / (float)base_period,
+            period, seed + (uint32_t)i);
+        total += amp;
+        amp *= 0.5f;
+        period *= 2;
+    }
+    return sum / total;
+}
+
 static void flecs_clouds_bakeWeather(
     uint8_t *data, float coverage_bias, float time_offset)
 {
@@ -535,40 +642,24 @@ static void flecs_clouds_rebuildTargetCache(
     impl->weather_target_last_coverage = coverage_bias;
 }
 
-/* Cellular automaton step on the weather coverage channel. Models three
+/* Cellular automaton step on the weather coverage channel. Models two
  * simple processes:
- *   - Wind advection: shift the coverage field in the wind direction.
  *   - Diffusion: 3x3 box smoothing models how clumps soften and merge.
  *   - Forcing: blend toward a slowly-scrolled FBM target so the field doesn't
  *     decay to a uniform value (the FBM acts as a synoptic-scale forcing).
+ * Wind advection is handled by the shader UV scroll (sample_density) so it
+ * runs at full rate per frame, avoiding double-advection with the CA.
  * Cloud-type channel is updated by lighter forcing alone; it changes more
  * slowly than coverage, matching real weather where storm-vs-fair-weather
  * regimes evolve on slower timescales. */
 static void flecs_clouds_evolveWeather(
     FlecsCloudsImpl *impl,
-    float dt_seconds,
-    float wind_x,
-    float wind_z,
-    float weather_scale_km)
+    float dt_seconds)
 {
     const int32_t s = (int32_t)FLECS_CLOUDS_WEATHER_SIZE;
     uint8_t *data = impl->weather_cpu;
     uint8_t *prev = impl->weather_prev;
     memcpy(prev, data, (size_t)s * s * 4);
-
-    /* Convert wind (world units / s) into texel offsets using the user-
-     * configured footprint. Accumulate fractional shift across ticks so
-     * realistic wind speeds (where per-tick shift is << 1 texel) still
-     * advect the field over time. */
-    float footprint_m = weather_scale_km > 0.001f
-        ? weather_scale_km * 1000.0f : 40000.0f;
-    float texels_per_meter = (float)s / footprint_m;
-    impl->wind_shift_x_accum += -wind_x * dt_seconds * texels_per_meter;
-    impl->wind_shift_z_accum += -wind_z * dt_seconds * texels_per_meter;
-    int32_t shift_x = (int32_t)impl->wind_shift_x_accum;
-    int32_t shift_z = (int32_t)impl->wind_shift_z_accum;
-    impl->wind_shift_x_accum -= (float)shift_x;
-    impl->wind_shift_z_accum -= (float)shift_z;
 
     const float inv_255 = 1.0f / 255.0f;
     const float lerp_r = 1.0f - expf(-dt_seconds * 0.6f);
@@ -576,15 +667,12 @@ static void flecs_clouds_evolveWeather(
 
     for (int32_t y = 0; y < s; y++) {
         for (int32_t x = 0; x < s; x++) {
-            int32_t sx = ((x + shift_x) % s + s) % s;
-            int32_t sy = ((y + shift_z) % s + s) % s;
-
             float sum_r = 0.0f;
             float sum_b = 0.0f;
             for (int32_t dy = -1; dy <= 1; dy++) {
                 for (int32_t ddx = -1; ddx <= 1; ddx++) {
-                    int32_t nx = ((sx + ddx) % s + s) % s;
-                    int32_t ny = ((sy + dy) % s + s) % s;
+                    int32_t nx = ((x + ddx) % s + s) % s;
+                    int32_t ny = ((y + dy) % s + s) % s;
                     sum_r += (float)prev[(ny * s + nx) * 4 + 0];
                     sum_b += (float)prev[(ny * s + nx) * 4 + 2];
                 }
@@ -615,16 +703,25 @@ static void flecs_clouds_evolveWeather(
 
 static void flecs_clouds_bakeNoise(uint8_t *data)
 {
-    /* RGBA8 packed octaves: R = base low-freq, G/B/A = increasing detail. */
+    /* RGBA8 packed octaves per Schneider 2015 §27:
+     *   R = Perlin-Worley base (value-noise FBM raised by inverted Worley FBM)
+     *   G/B/A = pure Worley FBM at 2x/4x/8x frequency for detail erosion.
+     * The Worley-based layers give cumulus billow that pure value-noise lacks. */
     const uint32_t s = FLECS_CLOUDS_NOISE_SIZE;
     for (uint32_t y = 0; y < s; y++) {
         for (uint32_t x = 0; x < s; x++) {
             float u = (float)x / (float)s;
             float v = (float)y / (float)s;
-            float r = flecs_clouds_fbm(u * 4.0f, v * 4.0f, 4, 5, 41u);
-            float g = flecs_clouds_fbm(u * 8.0f, v * 8.0f, 8, 4, 53u);
-            float b = flecs_clouds_fbm(u * 16.0f, v * 16.0f, 16, 3, 67u);
-            float a = flecs_clouds_fbm(u * 32.0f, v * 32.0f, 32, 2, 79u);
+            float perlin = flecs_clouds_fbm(u * 4.0f, v * 4.0f, 4, 5, 41u);
+            float worley = flecs_clouds_worley_fbm(
+                u * 4.0f, v * 4.0f, 4, 3, 43u);
+            /* remap(perlin, -worley, 1, 0, 1) = (perlin + worley)/(1 + worley) */
+            float r = (perlin + worley) / (1.0f + worley);
+            if (r < 0.0f) r = 0.0f;
+            if (r > 1.0f) r = 1.0f;
+            float g = flecs_clouds_worley_fbm(u * 8.0f, v * 8.0f, 8, 3, 53u);
+            float b = flecs_clouds_worley_fbm(u * 16.0f, v * 16.0f, 16, 3, 67u);
+            float a = flecs_clouds_worley_fbm(u * 32.0f, v * 32.0f, 32, 2, 79u);
             uint8_t *px = &data[(y * s + x) * 4];
             px[0] = (uint8_t)(r * 255.0f);
             px[1] = (uint8_t)(g * 255.0f);
@@ -1173,10 +1270,7 @@ static bool flecs_clouds_updateState(
             flecs_clouds_bakeWeather(impl->weather_cpu,
                 clouds->coverage, (float)impl->time_seconds);
         } else {
-            flecs_clouds_evolveWeather(impl,
-                (float)dt_since_update,
-                clouds->wind_x, clouds->wind_z,
-                clouds->weather_scale_km);
+            flecs_clouds_evolveWeather(impl, (float)dt_since_update);
         }
         WGPUTexelCopyTextureInfo dst = {
             .texture = impl->weather_texture,
@@ -1237,6 +1331,144 @@ static bool flecsEngine_clouds_bind(
         .binding = 6, .sampler = impl->repeat_sampler };
 
     *entry_count = 7;
+    return true;
+}
+
+/* Allocate (or recycle) the low-res cloud target + the upsample pipeline &
+ * bind group. Called from the render callback when render_scale < 1.0. The
+ * low-res texture is re-created whenever target dimensions, format, or the
+ * scale-derived size change. Returns false if any resource couldn't be
+ * built. */
+static bool flecs_clouds_ensureUpsampleResources(
+    const FlecsEngineImpl *engine,
+    FlecsCloudsImpl *impl,
+    const FlecsRenderViewImpl *view_impl,
+    WGPUTextureView input_view,
+    WGPUTextureFormat output_format,
+    float render_scale)
+{
+    uint32_t full_w = view_impl->effect_target_width;
+    uint32_t full_h = view_impl->effect_target_height;
+    if (full_w == 0 || full_h == 0) return false;
+
+    uint32_t lw = (uint32_t)((float)full_w * render_scale + 0.5f);
+    uint32_t lh = (uint32_t)((float)full_h * render_scale + 0.5f);
+    if (lw < 1) lw = 1;
+    if (lh < 1) lh = 1;
+
+    WGPUTextureFormat lowres_format = output_format;
+
+    if (impl->lowres_texture == NULL ||
+        impl->lowres_width != lw || impl->lowres_height != lh ||
+        impl->lowres_format != lowres_format)
+    {
+        FLECS_WGPU_RELEASE(impl->lowres_view, wgpuTextureViewRelease);
+        FLECS_WGPU_RELEASE(impl->lowres_texture, wgpuTextureRelease);
+        WGPUTextureDescriptor td = {
+            .usage = WGPUTextureUsage_RenderAttachment
+                   | WGPUTextureUsage_TextureBinding,
+            .dimension = WGPUTextureDimension_2D,
+            .size = { lw, lh, 1 },
+            .format = lowres_format,
+            .mipLevelCount = 1,
+            .sampleCount = 1
+        };
+        impl->lowres_texture = wgpuDeviceCreateTexture(engine->device, &td);
+        if (!impl->lowres_texture) return false;
+        impl->lowres_view = wgpuTextureCreateView(impl->lowres_texture,
+            &(WGPUTextureViewDescriptor){
+                .format = lowres_format,
+                .dimension = WGPUTextureViewDimension_2D,
+                .mipLevelCount = 1,
+                .arrayLayerCount = 1
+            });
+        if (!impl->lowres_view) return false;
+        impl->lowres_width = lw;
+        impl->lowres_height = lh;
+        impl->lowres_format = lowres_format;
+        FLECS_WGPU_RELEASE(impl->upsample_bind_group, wgpuBindGroupRelease);
+    }
+
+    if (!impl->upsample_sampler) {
+        impl->upsample_sampler = wgpuDeviceCreateSampler(engine->device,
+            &(WGPUSamplerDescriptor){
+                .addressModeU = WGPUAddressMode_ClampToEdge,
+                .addressModeV = WGPUAddressMode_ClampToEdge,
+                .addressModeW = WGPUAddressMode_ClampToEdge,
+                .magFilter = WGPUFilterMode_Linear,
+                .minFilter = WGPUFilterMode_Linear,
+                .mipmapFilter = WGPUMipmapFilterMode_Nearest,
+                .maxAnisotropy = 1
+            });
+        if (!impl->upsample_sampler) return false;
+    }
+
+    if (!impl->upsample_layout) {
+        WGPUBindGroupLayoutEntry entries[5] = {
+            { .binding = 0, .visibility = WGPUShaderStage_Fragment,
+              .texture = { .sampleType = WGPUTextureSampleType_Float,
+                .viewDimension = WGPUTextureViewDimension_2D } },
+            { .binding = 1, .visibility = WGPUShaderStage_Fragment,
+              .sampler = { .type = WGPUSamplerBindingType_Filtering } },
+            { .binding = 2, .visibility = WGPUShaderStage_Fragment,
+              .texture = { .sampleType = WGPUTextureSampleType_Depth,
+                .viewDimension = WGPUTextureViewDimension_2D } },
+            { .binding = 3, .visibility = WGPUShaderStage_Fragment,
+              .texture = { .sampleType = WGPUTextureSampleType_Float,
+                .viewDimension = WGPUTextureViewDimension_2D } },
+            { .binding = 4, .visibility = WGPUShaderStage_Fragment,
+              .sampler = { .type = WGPUSamplerBindingType_Filtering } }
+        };
+        impl->upsample_layout = wgpuDeviceCreateBindGroupLayout(
+            engine->device, &(WGPUBindGroupLayoutDescriptor){
+                .entryCount = 5, .entries = entries
+            });
+        if (!impl->upsample_layout) return false;
+    }
+
+    if (!impl->upsample_pipeline ||
+        impl->upsample_pipeline_format != output_format)
+    {
+        FLECS_WGPU_RELEASE(impl->upsample_pipeline, wgpuRenderPipelineRelease);
+        WGPUShaderModule mod = flecsEngine_createShaderModule(
+            engine->device, kCloudUpsampleShader);
+        if (!mod) return false;
+        WGPUColorTargetState target = {
+            .format = output_format,
+            .writeMask = WGPUColorWriteMask_All
+        };
+        impl->upsample_pipeline = flecsEngine_createFullscreenPipeline(
+            engine, mod, impl->upsample_layout,
+            "vs_main", "fs_main", &target, NULL);
+        wgpuShaderModuleRelease(mod);
+        if (!impl->upsample_pipeline) return false;
+        impl->upsample_pipeline_format = output_format;
+    }
+
+    if (!impl->upsample_bind_group ||
+        impl->upsample_bind_input_view != input_view ||
+        impl->upsample_bind_depth_view != view_impl->depth_texture_view ||
+        impl->upsample_bind_cloud_view != impl->lowres_view)
+    {
+        FLECS_WGPU_RELEASE(impl->upsample_bind_group, wgpuBindGroupRelease);
+        WGPUBindGroupEntry entries[5] = {
+            { .binding = 0, .textureView = input_view },
+            { .binding = 1, .sampler = engine->pipelines.passthrough_sampler },
+            { .binding = 2, .textureView = view_impl->depth_texture_view },
+            { .binding = 3, .textureView = impl->lowres_view },
+            { .binding = 4, .sampler = impl->upsample_sampler }
+        };
+        impl->upsample_bind_group = wgpuDeviceCreateBindGroup(engine->device,
+            &(WGPUBindGroupDescriptor){
+                .layout = impl->upsample_layout,
+                .entryCount = 5, .entries = entries
+            });
+        if (!impl->upsample_bind_group) return false;
+        impl->upsample_bind_input_view = input_view;
+        impl->upsample_bind_depth_view = view_impl->depth_texture_view;
+        impl->upsample_bind_cloud_view = impl->lowres_view;
+    }
+
     return true;
 }
 
@@ -1301,12 +1533,58 @@ static bool flecsEngine_clouds_render(
         wgpuRenderPassEncoderRelease(pass);
     }
 
-    return flecsEngine_renderEffect_render(
-        world, engine, view_impl, encoder,
-        output_view, output_load_op, (WGPUColor){0, 0, 0, 1},
-        effect_entity, effect, effect_impl,
-        input_view, output_format,
-        "Clouds", NULL);
+    float scale = clouds->render_scale;
+    if (scale <= 0.0f || scale > 1.0f) scale = 1.0f;
+
+    if (scale >= 0.999f) {
+        return flecsEngine_renderEffect_render(
+            world, engine, view_impl, encoder,
+            output_view, output_load_op, (WGPUColor){0, 0, 0, 1},
+            effect_entity, effect, effect_impl,
+            input_view, output_format,
+            "Clouds", NULL);
+    }
+
+    /* Low-res path: render the cloud shader into a smaller intermediate,
+     * then a full-res upsample pass composites it over the full-res input
+     * using the depth buffer to keep foreground pixels sharp. */
+    if (!flecs_clouds_ensureUpsampleResources(engine, impl, view_impl,
+            input_view, output_format, scale))
+    {
+        return false;
+    }
+
+    if (!flecsEngine_renderEffect_render(
+            world, engine, view_impl, encoder,
+            impl->lowres_view, WGPULoadOp_Clear, (WGPUColor){0, 0, 0, 1},
+            effect_entity, effect, effect_impl,
+            input_view, impl->lowres_format,
+            "CloudsLowRes", NULL))
+    {
+        return false;
+    }
+
+    WGPURenderPassColorAttachment up_att = {
+        .view = output_view,
+        WGPU_DEPTH_SLICE
+        .loadOp = output_load_op,
+        .storeOp = WGPUStoreOp_Store,
+        .clearValue = (WGPUColor){0, 0, 0, 1}
+    };
+    WGPURenderPassEncoder up_pass = wgpuCommandEncoderBeginRenderPass(
+        encoder, &(WGPURenderPassDescriptor){
+            .colorAttachmentCount = 1,
+            .colorAttachments = &up_att
+        });
+    if (!up_pass) return false;
+    wgpuRenderPassEncoderSetPipeline(up_pass, impl->upsample_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(up_pass, 0,
+        impl->upsample_bind_group, 0, NULL);
+    wgpuRenderPassEncoderDraw(up_pass, 3, 1, 0, 0);
+    wgpuRenderPassEncoderEnd(up_pass);
+    wgpuRenderPassEncoderRelease(up_pass);
+
+    return true;
 }
 
 FlecsClouds flecsEngine_cloudsSettingsDefault(void)
@@ -1330,7 +1608,8 @@ FlecsClouds flecsEngine_cloudsSettingsDefault(void)
          * same density formula as the sky shader. */
         .shadow_scale_km = 4.0f,
         .ambient_top = {220, 230, 255, 255},
-        .ambient_bottom = {110, 120, 140, 255}
+        .ambient_bottom = {110, 120, 140, 255},
+        .render_scale = 1.0f
     };
 }
 
@@ -1384,7 +1663,8 @@ void flecsEngine_clouds_register(
             { .name = "shadow_strength", .type = ecs_id(ecs_f32_t) },
             { .name = "shadow_scale_km", .type = ecs_id(ecs_f32_t) },
             { .name = "ambient_top", .type = ecs_id(flecs_rgba_t) },
-            { .name = "ambient_bottom", .type = ecs_id(flecs_rgba_t) }
+            { .name = "ambient_bottom", .type = ecs_id(flecs_rgba_t) },
+            { .name = "render_scale", .type = ecs_id(ecs_f32_t) }
         }
     });
 }
