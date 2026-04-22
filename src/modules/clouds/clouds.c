@@ -1115,19 +1115,30 @@ static void flecs_clouds_fillUniform(
             float nb = flecsEngine_colorChannelToFloat(atm->night_tint.b)
                 * night_scale * night;
 
+            /* User ambient_top/ambient_bottom act as a per-channel tint on
+             * the atmosphere-derived values (1,1,1 = no tint). Keeps the
+             * atmosphere as the primary driver while letting scenes dial
+             * in style adjustments. */
+            float tt_r = flecsEngine_colorChannelToFloat(clouds->ambient_top.r);
+            float tt_g = flecsEngine_colorChannelToFloat(clouds->ambient_top.g);
+            float tt_b = flecsEngine_colorChannelToFloat(clouds->ambient_top.b);
+            float tb_r = flecsEngine_colorChannelToFloat(clouds->ambient_bottom.r);
+            float tb_g = flecsEngine_colorChannelToFloat(clouds->ambient_bottom.g);
+            float tb_b = flecsEngine_colorChannelToFloat(clouds->ambient_bottom.b);
+
             uniform->ambient_top[0] =
-                sky_blue[0] * day + sun_t[0] * 0.25f * day + nr;
+                (sky_blue[0] * day + sun_t[0] * 0.25f * day + nr) * tt_r;
             uniform->ambient_top[1] =
-                sky_blue[1] * day + sun_t[1] * 0.25f * day + ng;
+                (sky_blue[1] * day + sun_t[1] * 0.25f * day + ng) * tt_g;
             uniform->ambient_top[2] =
-                sky_blue[2] * day + sun_t[2] * 0.25f * day + nb;
+                (sky_blue[2] * day + sun_t[2] * 0.25f * day + nb) * tt_b;
             uniform->ambient_top[3] = 1.0f;
             uniform->ambient_bottom[0] =
-                sky_blue[0] * 0.35f * day + sun_t[0] * 0.5f * day + nr * 0.4f;
+                (sky_blue[0] * 0.35f * day + sun_t[0] * 0.5f * day + nr * 0.4f) * tb_r;
             uniform->ambient_bottom[1] =
-                sky_blue[1] * 0.35f * day + sun_t[1] * 0.5f * day + ng * 0.4f;
+                (sky_blue[1] * 0.35f * day + sun_t[1] * 0.5f * day + ng * 0.4f) * tb_g;
             uniform->ambient_bottom[2] =
-                sky_blue[2] * 0.30f * day + sun_t[2] * 0.5f * day + nb * 0.4f;
+                (sky_blue[2] * 0.30f * day + sun_t[2] * 0.5f * day + nb * 0.4f) * tb_b;
             uniform->ambient_bottom[3] = 1.0f;
             ambient_from_atmos = true;
         }
