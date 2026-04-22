@@ -14,6 +14,11 @@ ECS_STRUCT(FlecsClouds, {
      * 2x faster. Independent of wind_x/wind_z which control drift
      * direction and base speed. */
     float time_scale;
+    /* Real-time seconds between CA ticks (CPU weather-texture updates).
+     * Independent of time_scale: 0.2 = 5 updates/sec regardless of how
+     * fast time_scale makes the clouds visually progress. Smaller values
+     * cost more CPU; larger values give coarser shape evolution. */
+    float weather_update_interval;
     float weather_scale_km;      /* world km per weather-texture tile */
     float noise_scale_km;        /* world km per noise-texture tile */
     /* Ground cloud-shadow controls. shadow_strength=0 disables. */
