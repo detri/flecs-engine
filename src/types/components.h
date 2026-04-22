@@ -172,6 +172,8 @@ struct FlecsRenderViewImpl {
     flecs_view_cluster_t cluster;
     flecs_view_opaque_snapshot_t opaque_snapshot;
 
+    bool cloud_shadow_available;
+
     /* Per-view query that finds all directional lights in the world. Created
      * lazily on first cull. To be replaced later with per-view light queries. */
     ecs_query_t *light_query;

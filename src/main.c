@@ -140,7 +140,7 @@ void initEngine(
       .max_range = 400,
       .bias = 0.0001
     },
-    .ambient_intensity = 0.2f,
+    .ambient_intensity = 0.5f,
     .screen_px_threshold = 100
   };
 
@@ -254,7 +254,7 @@ void initEngine(
   FlecsClouds clouds_settings = flecsEngine_cloudsSettingsDefault();
   clouds_settings.atmosphere = view.atmosphere;
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
-    (flecs_render_view_effect_t){ .enabled = true, .effect =
+    (flecs_render_view_effect_t){ .enabled = false, .effect =
       flecsEngine_createEffect_clouds(world, view_entity,
         "clouds", 3, &clouds_settings) };
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =

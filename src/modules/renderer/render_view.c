@@ -502,9 +502,11 @@ static void flecsEngine_renderView_writeFrameUniforms(
 
     uniforms.cloud_shadow_params[0] = engine->clouds.origin_x;
     uniforms.cloud_shadow_params[1] = engine->clouds.origin_z;
-    uniforms.cloud_shadow_params[2] = engine->clouds.shadow_source_view
-        ? engine->clouds.strength : 0.0f;
+    uniforms.cloud_shadow_params[2] =
+        (view_impl->cloud_shadow_available && engine->clouds.shadow_source_view)
+            ? engine->clouds.strength : 0.0f;
     uniforms.cloud_shadow_params[3] = engine->clouds.inv_footprint;
+    view_impl->cloud_shadow_available = false;
 
     view_impl->camera_pos[0] = uniforms.camera_pos[0];
     view_impl->camera_pos[1] = uniforms.camera_pos[1];

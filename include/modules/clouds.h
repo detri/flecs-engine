@@ -24,12 +24,16 @@ ECS_STRUCT(FlecsClouds, {
     /* Ground cloud-shadow controls. shadow_strength=0 disables. */
     float shadow_strength;
     float shadow_scale_km;       /* world km per shadow-projection tile */
+    /* Baked cloud-shadow texture resolution (square). Applied when the
+     * effect is created; changing at runtime has no effect. */
+    int32_t shadow_size;
     flecs_rgba_t ambient_top;
     flecs_rgba_t ambient_bottom;
-    /* Resolution scale for cloud raymarching. 1.0 = full-res, 0.5 = half-res
-     * (~4x faster), 0.25 = quarter-res. Foreground pixels are always taken
-     * from the full-res input so geometry edges stay sharp; only sky pixels
-     * pay the low-res cost. Values outside (0, 1] are clamped to 1.0. */
+    /* Resolution divisor for cloud raymarching. 1 = full-res, 2 = half-res
+     * in each axis (~4x faster), 4 = quarter-res (~16x faster). Foreground
+     * pixels are always taken from the full-res input so geometry edges stay
+     * sharp; only sky pixels pay the low-res cost. Values < 1 are clamped
+     * to 1. */
     float render_scale;
 });
 
