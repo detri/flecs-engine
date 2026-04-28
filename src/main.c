@@ -252,7 +252,7 @@ void initEngine(
       flecsEngine_createEffect_sunShafts(world, view_entity,
         "sunShafts", 2, NULL) };
   FlecsClouds clouds_settings = flecsEngine_cloudsSettingsDefault();
-  clouds_settings.atmosphere = view.atmosphere;
+  clouds_settings.appearance.atmosphere = view.atmosphere;
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
     (flecs_render_view_effect_t){ .enabled = false, .effect =
       flecsEngine_createEffect_clouds(world, view_entity,

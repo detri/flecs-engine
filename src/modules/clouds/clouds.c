@@ -8,7 +8,7 @@
 
 ECS_COMPONENT_DECLARE(FlecsClouds);
 
-/* Decoupled from clouds->density so overcast (high coverage, low density)
+/* Decoupled from clouds->appearance.density so overcast (high coverage, low density)
  * still casts full shadows. */
 #define FLECS_CLOUDS_SHADOW_OD_SCALE 4.0f
 
@@ -62,7 +62,8 @@ typedef struct FlecsCloudsUniform {
     float params0[4];        /* low_y, high_y, density_scale, jitter_seed */
     float params1[4];        /* coverage_bias, weather_inv_scale, noise_inv_scale, cloud_type_bias */
     float params2[4];        /* weather_uv_x, weather_uv_z, ambient_intensity, max_dist */
-    float params3[4];        /* noise_uv_x, noise_uv_z, _, _ */
+    float params3[4];        /* noise_uv_x, noise_uv_z, detail_strength, anisotropy */
+    float params4[4];        /* powder_strength, multi_scatter, march_steps, light_steps */
     float ambient_top[4];
     float ambient_bottom[4];
 } FlecsCloudsUniform;
@@ -157,6 +158,7 @@ static const char *kCloudsShader =
     "  params1 : vec4<f32>,\n"
     "  params2 : vec4<f32>,\n"
     "  params3 : vec4<f32>,\n"
+    "  params4 : vec4<f32>,\n"
     "  ambient_top : vec4<f32>,\n"
     "  ambient_bottom : vec4<f32>,\n"
     "};\n"
@@ -167,9 +169,8 @@ static const char *kCloudsShader =
     "@group(0) @binding(4) var weather_texture : texture_2d<f32>;\n"
     "@group(0) @binding(5) var noise_texture : texture_3d<f32>;\n"
     "@group(0) @binding(6) var repeat_sampler : sampler;\n"
-    "const STEPS : i32 = 32;\n"
-    "const MAX_STEPS : i32 = 128;\n"
-    "const LIGHT_STEPS : i32 = 4;\n"
+    "const MAX_STEPS : i32 = 256;\n"
+    "const MAX_LIGHT_STEPS : i32 = 16;\n"
     "fn reconstruct_world_pos(uv : vec2<f32>, depth : f32) -> vec3<f32> {\n"
     "  let ndc = vec4<f32>(uv.x * 2.0 - 1.0, (1.0 - uv.y) * 2.0 - 1.0, depth, 1.0);\n"
     "  let h = u.inv_vp * ndc;\n"
@@ -211,7 +212,7 @@ static const char *kCloudsShader =
     /* Schneider coverage remap (density threshold → silhouette). */
     "  d = saturate(remap(d, 1.0 - coverage, 1.0, 0.0, 1.0)) * coverage;\n"
     "  let erode_mask = saturate(remap(h, 0.0, 0.4, 1.0, 0.0)) * 0.5 + 0.5;\n"
-    "  d = saturate(d - (1.0 - detail) * 0.4 * erode_mask);\n"
+    "  d = saturate(d - (1.0 - detail) * u.params3.z * erode_mask);\n"
     "  return vec2<f32>(d, cloud_type);\n"
     "}\n"
     "fn hg(cos_t : f32, g : f32) -> f32 {\n"
@@ -219,10 +220,12 @@ static const char *kCloudsShader =
     "  let denom = 1.0 + g2 - 2.0 * g * cos_t;\n"
     "  return (1.0 - g2) / (12.566370614 * pow(max(denom, 1e-4), 1.5));\n"
     "}\n"
-    /* Dual-lobe HG, Hillaire 2016 §5.7. `scale` is Wrenninge c^n. */
-    "fn dual_hg(cos_t : f32, scale : f32) -> f32 {\n"
-    "  let g0 = 0.8 * scale;\n"
-    "  let g1 = -0.2 * scale;\n"
+    /* Dual-lobe HG, Hillaire 2016 §5.7. `scale` is Wrenninge c^n. `aniso` is
+     * the forward-lobe g; back lobe locked at -0.25 * aniso to preserve the
+     * Schneider 0.8 / -0.2 ratio. */
+    "fn dual_hg(cos_t : f32, scale : f32, aniso : f32) -> f32 {\n"
+    "  let g0 = aniso * scale;\n"
+    "  let g1 = -0.25 * aniso * scale;\n"
     "  return mix(hg(cos_t, g0), hg(cos_t, g1), 0.5);\n"
     "}\n"
     /* Schneider 2015 §57 cone-sampled light march: short steps toward the
@@ -232,7 +235,9 @@ static const char *kCloudsShader =
     "  var p = p_in;\n"
     "  let step : f32 = 120.0;\n"
     "  let cone_r : f32 = 30.0;\n"
-    "  for (var i : i32 = 0; i < LIGHT_STEPS; i = i + 1) {\n"
+    "  let light_steps = max(1, i32(u.params4.w));\n"
+    "  for (var i : i32 = 0; i < MAX_LIGHT_STEPS; i = i + 1) {\n"
+    "    if (i >= light_steps) { break; }\n"
     "    let fi = f32(i);\n"
     "    let h1 = fract(sin(fi * 12.9898 + 4.1414) * 43758.5453) * 2.0 - 1.0;\n"
     "    let h2 = fract(sin(fi * 78.233 + 27.182) * 43758.5453) * 2.0 - 1.0;\n"
@@ -299,24 +304,25 @@ static const char *kCloudsShader =
     "  if (t_exit <= t_enter + 1.0) { return src; }\n"
     "  let horizon_fade = smoothstep(-0.02, 0.05, d.y);\n"
     "  let extinction = max(u.params0.z, 1e-4);\n"
-    /* Cap step so near-horizon rays don't accumulate giant slabs per sample. */
-    "  let max_dt : f32 = 200.0;\n"
-    "  let raw_dt = (t_exit - t_enter) / f32(STEPS);\n"
-    "  let dt = min(raw_dt, max_dt);\n"
+    /* march_steps directly sets the sample count along the ray. Lower values
+     * trade horizon banding for perf; raise it for cleaner long-distance views. */
+    "  let march_steps = max(1.0, u.params4.z);\n"
+    "  let dt = (t_exit - t_enter) / march_steps;\n"
     "  let cos_sun = dot(d, u.sun_dir.xyz);\n"
     /* Wrenninge multi-scattering octaves, Hillaire 2016 §5.8. a = in-scatter
      * attenuation, b = extinction attenuation (a <= b for energy conservation),
      * c = phase widening. */
     "  let MS_OCT : i32 = 3;\n"
-    "  let MS_A : f32 = 0.5;\n"
+    "  let MS_A : f32 = u.params4.y;\n"
     "  let MS_B : f32 = 0.6;\n"
     "  let MS_C : f32 = 0.5;\n"
+    "  let aniso = u.params3.w;\n"
     "  var ms_phase : array<f32, 3>;\n"
     "  var ms_a_pow : array<f32, 3>;\n"
     "  var ms_b_pow : array<f32, 3>;\n"
     "  for (var k : i32 = 0; k < MS_OCT; k = k + 1) {\n"
     "    let kf = f32(k);\n"
-    "    ms_phase[k] = dual_hg(cos_sun, pow(MS_C, kf));\n"
+    "    ms_phase[k] = dual_hg(cos_sun, pow(MS_C, kf), aniso);\n"
     "    ms_a_pow[k] = pow(MS_A, kf);\n"
     "    ms_b_pow[k] = pow(MS_B, kf);\n"
     "  }\n"
@@ -337,7 +343,7 @@ static const char *kCloudsShader =
     "      let sun_t = exp(-light_od);\n"
     /* Powder term, Schneider 2015 §57; floor at 0.5 so thin clouds don't
      * darken to zero. */
-    "      let powder = mix(1.0, 1.0 - exp(-light_od * 2.0), 0.5);\n"
+    "      let powder = mix(1.0, 1.0 - exp(-light_od * 2.0), u.params4.x);\n"
     "      let h_norm = saturate((p.y - low_y) / max(high_y - low_y, 1e-3));\n"
     "      let ambient = mix(u.ambient_bottom.rgb, u.ambient_top.rgb, h_norm)\n"
     "                  * u.params2.z;\n"
@@ -523,21 +529,25 @@ static float flecs_clouds_worley_fbm(float x, float y, int32_t base_period, int3
  * texture stays stable and artists see the exact value they set. Channels:
  * R=base coverage, G=unused, B=cloud_type. */
 static void flecs_clouds_bakeWeather(
-    uint8_t *data)
+    uint8_t *data, uint32_t seed)
 {
     const uint32_t s = FLECS_CLOUDS_WEATHER_SIZE;
+    /* Type seed offset > coverage octave count so per-octave hashes never
+     * collide between channels. */
+    uint32_t cov_seed = seed ? seed : 11u;
+    uint32_t type_seed = cov_seed + 100u;
     for (uint32_t y = 0; y < s; y++) {
         for (uint32_t x = 0; x < s; x++) {
             float u = (float)x / (float)s * 4.0f;
             float v = (float)y / (float)s * 4.0f;
-            float cov_raw = flecs_clouds_fbm(u, v, 4, 4, 11u);
+            float cov_raw = flecs_clouds_fbm(u, v, 4, 4, cov_seed);
             float cov = (cov_raw - 0.5f) * 2.5f + 0.5f;
             if (cov < 0.0f) cov = 0.0f;
             if (cov > 1.0f) cov = 1.0f;
             /* Multiplier must divide base_period (4) so the FBM stays periodic
              * across the texture's wrap boundary; 0.7 produced an x-axis seam. */
             float type_raw = flecs_clouds_fbm(
-                u * 0.5f + 3.0f, v * 0.5f + 3.0f, 4, 3, 23u);
+                u * 0.5f + 3.0f, v * 0.5f + 3.0f, 4, 3, type_seed);
             float type = type_raw;
             if (type < 0.0f) type = 0.0f;
             if (type > 1.0f) type = 1.0f;
@@ -824,6 +834,8 @@ static bool flecsEngine_clouds_setup(
     (void)effect;
     (void)effect_impl;
 
+    const FlecsClouds *cfg = ecs_get(world, effect_entity, FlecsClouds);
+
     FlecsCloudsImpl impl = {0};
     impl.uniform_buffer = flecsEngine_createUniformBuffer(
         engine->device, sizeof(FlecsCloudsUniform));
@@ -831,7 +843,7 @@ static bool flecsEngine_clouds_setup(
 
     uint8_t *weather_data = ecs_os_malloc(
         FLECS_CLOUDS_WEATHER_SIZE * FLECS_CLOUDS_WEATHER_SIZE * 4u);
-    flecs_clouds_bakeWeather(weather_data);
+    flecs_clouds_bakeWeather(weather_data, cfg->appearance.seed);
     bool ok = flecs_clouds_uploadTexture(
         engine, FLECS_CLOUDS_WEATHER_SIZE, weather_data,
         &impl.weather_texture, &impl.weather_view);
@@ -902,8 +914,7 @@ static bool flecsEngine_clouds_setup(
     };
 
     {
-        const FlecsClouds *cfg = ecs_get(world, effect_entity, FlecsClouds);
-        impl.shadow_size = (uint32_t)cfg->shadow_size;
+        impl.shadow_size = (uint32_t)cfg->shadows.size;
         WGPUTextureDescriptor sd = {
             .usage = WGPUTextureUsage_RenderAttachment
                    | WGPUTextureUsage_TextureBinding,
@@ -1048,8 +1059,8 @@ static void flecs_clouds_fillUniform(
     uniform->sun_color[0] = 5.0f;
     uniform->sun_color[1] = 5.0f;
     uniform->sun_color[2] = 5.0f;
-    if (clouds->atmosphere) {
-        const FlecsAtmosphere *atm = ecs_get(world, clouds->atmosphere, FlecsAtmosphere);
+    if (clouds->appearance.atmosphere) {
+        const FlecsAtmosphere *atm = ecs_get(world, clouds->appearance.atmosphere, FlecsAtmosphere);
         if (atm && atm->sun) {
             const FlecsRotation3 *rot = ecs_get(world, atm->sun, FlecsRotation3);
             if (rot) {
@@ -1078,33 +1089,33 @@ static void flecs_clouds_fillUniform(
         }
     }
 
-    float low_y = clouds->low_altitude_km * 1000.0f;
-    float high_y = clouds->high_altitude_km * 1000.0f;
-    if (clouds->atmosphere) {
-        const FlecsAtmosphere *atm = ecs_get(world, clouds->atmosphere, FlecsAtmosphere);
+    float low_y = clouds->appearance.low_altitude_km * 1000.0f;
+    float high_y = clouds->appearance.high_altitude_km * 1000.0f;
+    if (clouds->appearance.atmosphere) {
+        const FlecsAtmosphere *atm = ecs_get(world, clouds->appearance.atmosphere, FlecsAtmosphere);
         if (atm && atm->world_units_per_km > 1e-3f) {
             low_y = atm->sea_level_y +
-                clouds->low_altitude_km * atm->world_units_per_km;
+                clouds->appearance.low_altitude_km * atm->world_units_per_km;
             high_y = atm->sea_level_y +
-                clouds->high_altitude_km * atm->world_units_per_km;
+                clouds->appearance.high_altitude_km * atm->world_units_per_km;
         }
     }
     uniform->params0[0] = low_y;
     uniform->params0[1] = high_y;
-    uniform->params0[2] = clouds->density;
+    uniform->params0[2] = clouds->appearance.density;
     /* Bounded jitter seed: phase variation with no long-session drift. */
     uniform->params0[3] = (float)(impl->frame_counter & 1023u);
 
     /* Weather texture stores neutral-bias FBM; coverage is applied at
      * sample time as an additive shift on weather.r. */
-    uniform->params1[0] = clouds->coverage - 0.5f;
-    float weather_scale_m = clouds->weather_scale_km > 0.001f
-        ? clouds->weather_scale_km * 1000.0f : 20000.0f;
-    float noise_scale_m = clouds->noise_scale_km > 0.001f
-        ? clouds->noise_scale_km * 1000.0f : 4000.0f;
+    uniform->params1[0] = clouds->appearance.coverage - 0.5f;
+    float weather_scale_m = clouds->appearance.weather_scale_km > 0.001f
+        ? clouds->appearance.weather_scale_km * 1000.0f : 20000.0f;
+    float noise_scale_m = clouds->appearance.noise_scale_km > 0.001f
+        ? clouds->appearance.noise_scale_km * 1000.0f : 4000.0f;
     uniform->params1[1] = 1.0f / weather_scale_m;
     uniform->params1[2] = 1.0f / noise_scale_m;
-    uniform->params1[3] = clouds->cloud_type_bias;
+    uniform->params1[3] = clouds->appearance.cloud_type_bias;
 
     /* Wind as pre-wrapped UV offsets (double-precision CPU fmod → [0,1)
      * float), so the shader sidesteps (wind*time) float blowup. */
@@ -1115,20 +1126,29 @@ static void flecs_clouds_fillUniform(
     uniform->params2[0] = (float)wx_uv;
     uniform->params2[1] = (float)wz_uv;
     uniform->params2[2] = 1.0f;
-    uniform->params2[3] = 200000.0f; /* max march distance in world units */
+    float max_dist_m = clouds->performance.max_distance_km > 0.001f
+        ? clouds->performance.max_distance_km * 1000.0f : 200000.0f;
+    uniform->params2[3] = max_dist_m;
 
     uniform->params3[0] = (float)nx_uv;
     uniform->params3[1] = (float)nz_uv;
-    uniform->params3[2] = 0.0f;
-    uniform->params3[3] = 0.0f;
+    uniform->params3[2] = clouds->appearance.detail_strength;
+    uniform->params3[3] = clouds->appearance.anisotropy;
+
+    uniform->params4[0] = clouds->appearance.powder_strength;
+    uniform->params4[1] = clouds->appearance.multi_scatter;
+    uniform->params4[2] = clouds->performance.march_steps > 0
+        ? (float)clouds->performance.march_steps : 32.0f;
+    uniform->params4[3] = clouds->performance.light_steps > 0
+        ? (float)clouds->performance.light_steps : 4.0f;
 
     /* Atmosphere-derived ambient: crown leans blue (sees the full sky dome),
      * base picks up warm sun + ground bounce. Night floor from atm->night_tint.
      * User ambient_top/bottom act as per-channel tints on this. */
     bool ambient_from_atmos = false;
-    if (clouds->atmosphere) {
+    if (clouds->appearance.atmosphere) {
         const FlecsAtmosphere *atm = ecs_get(
-            world, clouds->atmosphere, FlecsAtmosphere);
+            world, clouds->appearance.atmosphere, FlecsAtmosphere);
         if (atm) {
             float sun_cos_z = uniform->sun_dir[1];
             if (sun_cos_z < -1.0f) sun_cos_z = -1.0f;
@@ -1149,12 +1169,12 @@ static void flecs_clouds_fillUniform(
             float nb = flecsEngine_colorChannelToFloat(atm->night_tint.b)
                 * night_scale * night;
 
-            float tt_r = flecsEngine_colorChannelToFloat(clouds->ambient_top.r);
-            float tt_g = flecsEngine_colorChannelToFloat(clouds->ambient_top.g);
-            float tt_b = flecsEngine_colorChannelToFloat(clouds->ambient_top.b);
-            float tb_r = flecsEngine_colorChannelToFloat(clouds->ambient_bottom.r);
-            float tb_g = flecsEngine_colorChannelToFloat(clouds->ambient_bottom.g);
-            float tb_b = flecsEngine_colorChannelToFloat(clouds->ambient_bottom.b);
+            float tt_r = flecsEngine_colorChannelToFloat(clouds->appearance.ambient_top.r);
+            float tt_g = flecsEngine_colorChannelToFloat(clouds->appearance.ambient_top.g);
+            float tt_b = flecsEngine_colorChannelToFloat(clouds->appearance.ambient_top.b);
+            float tb_r = flecsEngine_colorChannelToFloat(clouds->appearance.ambient_bottom.r);
+            float tb_g = flecsEngine_colorChannelToFloat(clouds->appearance.ambient_bottom.g);
+            float tb_b = flecsEngine_colorChannelToFloat(clouds->appearance.ambient_bottom.b);
 
             uniform->ambient_top[0] =
                 (sky_blue[0] * day + sun_t[0] * 0.25f * day + nr) * tt_r;
@@ -1175,18 +1195,18 @@ static void flecs_clouds_fillUniform(
     }
     if (!ambient_from_atmos) {
         uniform->ambient_top[0] =
-            flecsEngine_colorChannelToFloat(clouds->ambient_top.r);
+            flecsEngine_colorChannelToFloat(clouds->appearance.ambient_top.r);
         uniform->ambient_top[1] =
-            flecsEngine_colorChannelToFloat(clouds->ambient_top.g);
+            flecsEngine_colorChannelToFloat(clouds->appearance.ambient_top.g);
         uniform->ambient_top[2] =
-            flecsEngine_colorChannelToFloat(clouds->ambient_top.b);
+            flecsEngine_colorChannelToFloat(clouds->appearance.ambient_top.b);
         uniform->ambient_top[3] = 1.0f;
         uniform->ambient_bottom[0] =
-            flecsEngine_colorChannelToFloat(clouds->ambient_bottom.r);
+            flecsEngine_colorChannelToFloat(clouds->appearance.ambient_bottom.r);
         uniform->ambient_bottom[1] =
-            flecsEngine_colorChannelToFloat(clouds->ambient_bottom.g);
+            flecsEngine_colorChannelToFloat(clouds->appearance.ambient_bottom.g);
         uniform->ambient_bottom[2] =
-            flecsEngine_colorChannelToFloat(clouds->ambient_bottom.b);
+            flecsEngine_colorChannelToFloat(clouds->appearance.ambient_bottom.b);
         uniform->ambient_bottom[3] = 1.0f;
     }
 }
@@ -1203,8 +1223,8 @@ static bool flecs_clouds_updateState(
     float real_dt = (float)ecs_get_world_info(world)->delta_time;
     if (real_dt < 0.0f) real_dt = 0.0f;
     if (real_dt > 0.1f) real_dt = 0.1f;
-    impl->wind_offset_x += (double)clouds->wind_x * (double)real_dt;
-    impl->wind_offset_z += (double)clouds->wind_z * (double)real_dt;
+    impl->wind_offset_x += (double)clouds->appearance.wind_x * (double)real_dt;
+    impl->wind_offset_z += (double)clouds->appearance.wind_z * (double)real_dt;
     impl->frame_counter++;
 
     FlecsCloudsUniform uniform = {0};
@@ -1215,8 +1235,8 @@ static bool flecs_clouds_updateState(
     /* Shadow bake uniform for this frame; bake pass itself runs in the
      * render_callback. */
     {
-        float footprint = clouds->shadow_scale_km > 0.001f
-            ? clouds->shadow_scale_km * 1000.0f : 4000.0f;
+        float footprint = clouds->shadows.scale_km > 0.001f
+            ? clouds->shadows.scale_km * 1000.0f : 4000.0f;
         float texel = footprint / (float)impl->shadow_size;
         float cx = uniform.camera_pos[0];
         float cz = uniform.camera_pos[2];
@@ -1252,7 +1272,7 @@ static bool flecs_clouds_updateState(
         flecs_clouds_publishShadow(
             engine, impl->shadow_view,
             origin_x, origin_z, impl->shadow_inv_footprint,
-            clouds->shadow_strength);
+            clouds->shadows.strength);
     }
 
     return true;
@@ -1464,7 +1484,7 @@ static bool flecsEngine_clouds_render(
     }
 
     ((FlecsRenderViewImpl*)view_impl)->cloud_shadow_available =
-        clouds->shadow_strength > 0.0f;
+        clouds->shadows.strength > 0.0f;
 
     if (!flecsEngine_fullscreenPass(
             encoder, impl->shadow_view,
@@ -1475,7 +1495,7 @@ static bool flecsEngine_clouds_render(
         return false;
     }
 
-    float scale = clouds->render_scale;
+    float scale = clouds->performance.render_scale;
     if (scale < 1.0f) scale = 1.0f;
 
     if (scale <= 1.001f) {
@@ -1513,22 +1533,36 @@ static bool flecsEngine_clouds_render(
 FlecsClouds flecsEngine_cloudsSettingsDefault(void)
 {
     return (FlecsClouds){
-        .atmosphere = 0,
-        .low_altitude_km = 0.1f,
-        .high_altitude_km = 2.0f,
-        .coverage = 0.55f,
-        .cloud_type_bias = 0.0f,
-        .density = 0.04f,
-        .wind_x = 8.0f,
-        .wind_z = 4.0f,
-        .weather_scale_km = 10.0f,
-        .noise_scale_km = 2.0f,
-        .shadow_strength = 1.0f,
-        .shadow_scale_km = 2.0f,
-        .shadow_size = 1024,
-        .ambient_top = {220, 230, 255, 255},
-        .ambient_bottom = {110, 120, 140, 255},
-        .render_scale = 0.25f
+        .appearance = {
+            .atmosphere = 0,
+            .low_altitude_km = 0.1f,
+            .high_altitude_km = 2.0f,
+            .coverage = 0.55f,
+            .cloud_type_bias = 0.0f,
+            .density = 0.04f,
+            .detail_strength = 0.4f,
+            .anisotropy = 0.8f,
+            .powder_strength = 0.5f,
+            .multi_scatter = 0.5f,
+            .wind_x = 8.0f,
+            .wind_z = 4.0f,
+            .weather_scale_km = 10.0f,
+            .noise_scale_km = 2.0f,
+            .seed = 0u,
+            .ambient_top = {220, 230, 255, 255},
+            .ambient_bottom = {110, 120, 140, 255}
+        },
+        .shadows = {
+            .strength = 1.0f,
+            .scale_km = 2.0f,
+            .size = 1024
+        },
+        .performance = {
+            .render_scale = 0.25f,
+            .march_steps = 32,
+            .light_steps = 4,
+            .max_distance_km = 200.0f
+        }
     };
 }
 
@@ -1566,8 +1600,8 @@ void flecsEngine_clouds_register(
         .dtor = ecs_dtor(FlecsCloudsImpl)
     });
 
-    ecs_struct(world, {
-        .entity = ecs_id(FlecsClouds),
+    ecs_entity_t appearance_t = ecs_struct(world, {
+        .entity = ecs_entity(world, { .name = "FlecsCloudsAppearance" }),
         .members = {
             { .name = "atmosphere", .type = ecs_id(ecs_entity_t) },
             { .name = "low_altitude_km", .type = ecs_id(ecs_f32_t) },
@@ -1575,16 +1609,45 @@ void flecsEngine_clouds_register(
             { .name = "coverage", .type = ecs_id(ecs_f32_t) },
             { .name = "cloud_type_bias", .type = ecs_id(ecs_f32_t) },
             { .name = "density", .type = ecs_id(ecs_f32_t) },
+            { .name = "detail_strength", .type = ecs_id(ecs_f32_t) },
+            { .name = "anisotropy", .type = ecs_id(ecs_f32_t) },
+            { .name = "powder_strength", .type = ecs_id(ecs_f32_t) },
+            { .name = "multi_scatter", .type = ecs_id(ecs_f32_t) },
             { .name = "wind_x", .type = ecs_id(ecs_f32_t) },
             { .name = "wind_z", .type = ecs_id(ecs_f32_t) },
             { .name = "weather_scale_km", .type = ecs_id(ecs_f32_t) },
             { .name = "noise_scale_km", .type = ecs_id(ecs_f32_t) },
-            { .name = "shadow_strength", .type = ecs_id(ecs_f32_t) },
-            { .name = "shadow_scale_km", .type = ecs_id(ecs_f32_t) },
-            { .name = "shadow_size", .type = ecs_id(ecs_i32_t) },
+            { .name = "seed", .type = ecs_id(ecs_u32_t) },
             { .name = "ambient_top", .type = ecs_id(flecs_rgba_t) },
-            { .name = "ambient_bottom", .type = ecs_id(flecs_rgba_t) },
-            { .name = "render_scale", .type = ecs_id(ecs_f32_t) }
+            { .name = "ambient_bottom", .type = ecs_id(flecs_rgba_t) }
+        }
+    });
+
+    ecs_entity_t shadows_t = ecs_struct(world, {
+        .entity = ecs_entity(world, { .name = "FlecsCloudsShadows" }),
+        .members = {
+            { .name = "strength", .type = ecs_id(ecs_f32_t) },
+            { .name = "scale_km", .type = ecs_id(ecs_f32_t) },
+            { .name = "size", .type = ecs_id(ecs_i32_t) }
+        }
+    });
+
+    ecs_entity_t performance_t = ecs_struct(world, {
+        .entity = ecs_entity(world, { .name = "FlecsCloudsPerformance" }),
+        .members = {
+            { .name = "render_scale", .type = ecs_id(ecs_f32_t) },
+            { .name = "march_steps", .type = ecs_id(ecs_i32_t) },
+            { .name = "light_steps", .type = ecs_id(ecs_i32_t) },
+            { .name = "max_distance_km", .type = ecs_id(ecs_f32_t) }
+        }
+    });
+
+    ecs_struct(world, {
+        .entity = ecs_id(FlecsClouds),
+        .members = {
+            { .name = "appearance", .type = appearance_t },
+            { .name = "shadows", .type = shadows_t },
+            { .name = "performance", .type = performance_t }
         }
     });
 }
