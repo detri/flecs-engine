@@ -58,8 +58,10 @@ void flecsEngine_textureArray_release(
         bk->width = 0;
         bk->height = 0;
         bk->is_bc7 = false;
+        FLECS_WGPU_RELEASE(impl->textures.bucket_bind_groups[b],
+            wgpuBindGroupRelease);
     }
-    FLECS_WGPU_RELEASE(impl->textures.array_bind_group, wgpuBindGroupRelease);
+    FLECS_WGPU_RELEASE(impl->textures.fallback_bind_group, wgpuBindGroupRelease);
 }
 
 typedef struct {
@@ -435,6 +437,41 @@ static void flecsEngine_textureArray_fillBucketFallback(
 
 /* ---- Bind group ---- */
 
+static WGPUBindGroup flecsEngine_textureArray_createBucketBindGroup(
+    FlecsEngineImpl *impl,
+    WGPUBindGroupLayout layout,
+    WGPUSampler aniso_sampler,
+    WGPUSampler low_sampler,
+    WGPUTextureView channel_views[4])
+{
+    WGPUTextureView fallback_white  = impl->textures.fallback_white_array_view;
+    WGPUTextureView fallback_normal = impl->textures.fallback_normal_array_view;
+
+    WGPUBindGroupEntry entries[6] = {0};
+    for (uint32_t ch = 0; ch < 4; ch++) {
+        WGPUTextureView fb = (ch == 3) ? fallback_normal : fallback_white;
+        entries[ch] = (WGPUBindGroupEntry){
+            .binding = ch,
+            .textureView = channel_views[ch] ? channel_views[ch] : fb
+        };
+    }
+    entries[4] = (WGPUBindGroupEntry){
+        .binding = 4,
+        .sampler = aniso_sampler
+    };
+    entries[5] = (WGPUBindGroupEntry){
+        .binding = 5,
+        .sampler = low_sampler
+    };
+
+    return wgpuDeviceCreateBindGroup(impl->device,
+        &(WGPUBindGroupDescriptor){
+            .layout = layout,
+            .entries = entries,
+            .entryCount = 6
+        });
+}
+
 static void flecsEngine_textureArray_createBindGroup(
     FlecsEngineImpl *impl,
     uint16_t max_aniso)
@@ -466,41 +503,23 @@ static void flecsEngine_textureArray_createBindGroup(
     WGPUBindGroupLayout layout =
         flecsEngine_textures_ensureBindLayout(impl);
 
-    WGPUTextureView fallback_white  = impl->textures.fallback_white_array_view;
-    WGPUTextureView fallback_normal = impl->textures.fallback_normal_array_view;
-
-    WGPUTextureView views[12];
-    for (int ch = 0; ch < 4; ch++) {
-        WGPUTextureView fb = (ch == 3) ? fallback_normal : fallback_white;
-        for (int b = 0; b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT; b++) {
-            WGPUTextureView v = impl->textures.buckets[b].texture_array_views[ch];
-            views[ch * 3 + b] = v ? v : fb;
-        }
-    }
-
-    WGPUBindGroupEntry entries[14];
-    for (uint32_t i = 0; i < 12; i++) {
-        entries[i] = (WGPUBindGroupEntry){
-            .binding = i,
-            .textureView = views[i]
+    for (int b = 0; b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT; b++) {
+        flecsEngine_texture_bucket_t *bk = &impl->textures.buckets[b];
+        WGPUTextureView views[4] = {
+            bk->texture_array_views[0],
+            bk->texture_array_views[1],
+            bk->texture_array_views[2],
+            bk->texture_array_views[3]
         };
+        impl->textures.bucket_bind_groups[b] =
+            flecsEngine_textureArray_createBucketBindGroup(
+                impl, layout, aniso_sampler, low_sampler, views);
     }
-    entries[12] = (WGPUBindGroupEntry){
-        .binding = 12,
-        .sampler = aniso_sampler
-    };
-    entries[13] = (WGPUBindGroupEntry){
-        .binding = 13,
-        .sampler = low_sampler
-    };
 
-    impl->textures.array_bind_group =
-        wgpuDeviceCreateBindGroup(impl->device,
-            &(WGPUBindGroupDescriptor){
-                .layout = layout,
-                .entries = entries,
-                .entryCount = 14
-            });
+    WGPUTextureView fallback_views[4] = { NULL, NULL, NULL, NULL };
+    impl->textures.fallback_bind_group =
+        flecsEngine_textureArray_createBucketBindGroup(
+            impl, layout, aniso_sampler, low_sampler, fallback_views);
 }
 
 /* ---- Build orchestrator ---- */
@@ -515,6 +534,8 @@ void flecsEngine_material_buildTextureArrays(
 
     flecsEngine_textureArray_release(impl);
     flecsEngine_pbr_texture_ensureFallbacks(impl);
+
+    impl->textures.bucket_version ++;
 
     const FlecsSurface *surface = ecs_get(world, impl->surface, FlecsSurface);
     uint16_t max_aniso = (surface && surface->anisotropy != FlecsAnisotropyDefault)

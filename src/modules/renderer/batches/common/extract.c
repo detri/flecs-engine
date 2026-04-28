@@ -123,6 +123,29 @@ static void flecsEngine_batch_group_extractTable(
         material_id = ecs_field(it, FlecsMaterialId, 3);
     }
 
+    if (material_id && ctx->texture_bucket != FLECS_ENGINE_BUCKET_INVALID) {
+        uint32_t mid = material_id[0].value;
+        if (mid < engine->materials.count) {
+            int8_t b = (int8_t)
+                engine->materials.cpu_materials[mid].texture_bucket;
+            if (b >= 0 && b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT) {
+                if (ctx->texture_bucket == FLECS_ENGINE_BUCKET_UNSET) {
+                    ctx->texture_bucket = b;
+                } else if (ctx->texture_bucket != b) {
+                    char *gname = ecs_get_path(it->world,
+                        (ecs_entity_t)ctx->group_id);
+                    ecs_err(
+                        "render group '%s' references textures from "
+                        "multiple buckets (%d and %d): a single mesh "
+                        "must use textures of a consistent size/kind",
+                        gname, (int)ctx->texture_bucket, (int)b);
+                    ecs_os_free(gname);
+                    ctx->texture_bucket = FLECS_ENGINE_BUCKET_INVALID;
+                }
+            }
+        }
+    }
+
     bool is_static = false;
     if (buf->flags & FLECS_BATCH_TRACK_STATIC) {
         is_static = !ecs_table_has_id(
@@ -267,6 +290,11 @@ void flecsEngine_batch_group_extract(
     FLECS_TRACY_ZONE_BEGIN("ExtractGroup");
 
     ctx->view.count = 0;
+
+    if (ctx->resolved_bucket_version != engine->textures.bucket_version) {
+        ctx->texture_bucket = FLECS_ENGINE_BUCKET_UNSET;
+        ctx->resolved_bucket_version = engine->textures.bucket_version;
+    }
 
     ecs_iter_t it = ecs_query_iter(world, batch->query);
     ecs_iter_set_group(&it, ctx->group_id);

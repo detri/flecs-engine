@@ -186,6 +186,52 @@ error:
     return -1;
 }
 
+static void FlecsEngineMaterialManager(
+    ecs_iter_t *it)
+{
+    FLECS_TRACY_ZONE_BEGIN("MaterialManager");
+    FlecsEngineImpl *impl = ecs_field(it, FlecsEngineImpl, 0);
+
+    if (!impl->device || !impl->queue) {
+        FLECS_TRACY_ZONE_END;
+        return;
+    }
+
+    const FlecsSurface *surface = ecs_get(it->world, impl->surface, FlecsSurface);
+    if (!surface) {
+        FLECS_TRACY_ZONE_END;
+        return;
+    }
+
+    FLECS_TRACY_ZONE_BEGIN_N(__matu, "MaterialUploadBuffer");
+    flecsEngine_material_uploadBuffer(it->world, impl);
+    FLECS_TRACY_ZONE_END_N(__matu);
+
+    {
+        uint16_t desired_aniso = (surface->anisotropy != FlecsAnisotropyDefault)
+            ? (uint16_t)surface->anisotropy
+            : (uint16_t)FlecsAnisotropyHigh;
+        if (impl->textures.applied_max_aniso &&
+            impl->textures.applied_max_aniso != desired_aniso)
+        {
+            FLECS_WGPU_RELEASE(impl->textures.fallback_bind_group,
+                wgpuBindGroupRelease);
+            for (int b = 0; b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT; b++) {
+                FLECS_WGPU_RELEASE(impl->textures.bucket_bind_groups[b],
+                    wgpuBindGroupRelease);
+            }
+        }
+    }
+
+    if (!impl->textures.fallback_bind_group) {
+        FLECS_TRACY_ZONE_BEGIN_N(__mta, "BuildTextureArrays");
+        flecsEngine_material_buildTextureArrays(it->world, impl);
+        FLECS_TRACY_ZONE_END_N(__mta);
+    }
+
+    FLECS_TRACY_ZONE_END;
+}
+
 static void FlecsEngineExtract(
     ecs_iter_t *it)
 {
@@ -332,30 +378,6 @@ static void FlecsEngineRender(
 
     flecsEngine_gpuTiming_logIfReady(impl);
     flecsEngine_gpuTiming_beginFrame(impl, surface->gpu_timings);
-
-    // Sync materials
-    FLECS_TRACY_ZONE_BEGIN_N(__matu, "MaterialUploadBuffer");
-    flecsEngine_material_uploadBuffer(it->world, impl);
-    FLECS_TRACY_ZONE_END_N(__matu);
-
-    {
-        uint16_t desired_aniso = (surface->anisotropy != FlecsAnisotropyDefault)
-            ? (uint16_t)surface->anisotropy
-            : (uint16_t)FlecsAnisotropyHigh;
-        if (impl->textures.applied_max_aniso &&
-            impl->textures.applied_max_aniso != desired_aniso)
-        {
-            FLECS_WGPU_RELEASE(impl->textures.array_bind_group,
-                wgpuBindGroupRelease);
-        }
-    }
-
-    // Build texture arrays (only runs when materials change)
-    if (!impl->textures.array_bind_group) {
-        FLECS_TRACY_ZONE_BEGIN_N(__mta, "BuildTextureArrays");
-        flecsEngine_material_buildTextureArrays(it->world, impl);
-        FLECS_TRACY_ZONE_END_N(__mta);
-    }
 
     // Render all views
     flecsEngine_renderView_renderAll(
@@ -528,6 +550,9 @@ void FlecsEngineRendererImport(
     }
 
     ecs_set_name_prefix(world, "FlecsEngine");
+
+    ECS_SYSTEM(world, FlecsEngineMaterialManager, EcsOnStore,
+        flecs.engine.EngineImpl);
 
     ECS_SYSTEM(world, FlecsEngineExtract, EcsOnStore,
         flecs.engine.EngineImpl);

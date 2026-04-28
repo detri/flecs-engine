@@ -190,7 +190,7 @@ static void page_textures(
         impl->materials.count, impl->materials.buffer_capacity);
     ecs_strbuf_append(b,
         "<p>Bind group: %s</p>",
-        impl->textures.array_bind_group ? "built" : "not built");
+        impl->textures.fallback_bind_group ? "built" : "not built");
 
     static const char *channel_names[4] = {
         "albedo", "emissive", "mr", "normal"

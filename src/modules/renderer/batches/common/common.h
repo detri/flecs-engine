@@ -75,6 +75,7 @@ typedef struct flecsEngine_batch_t {
     flecsEngine_batch_buffers_t static_buffers;
     ecs_vec_t free_slots;
     ecs_flags32_t flags;
+    bool uses_textures;
 } flecsEngine_batch_t;
 
 /* View on batch buffers. The source slice [offset, offset+count) in the batch
@@ -100,7 +101,13 @@ typedef struct flecsEngine_batch_group_t {
 
     uint64_t group_id;
     FlecsMesh3Impl mesh;
+
+    int8_t texture_bucket;
+    uint32_t resolved_bucket_version;
 } flecsEngine_batch_group_t;
+
+#define FLECS_ENGINE_BUCKET_UNSET   ((int8_t)-1)
+#define FLECS_ENGINE_BUCKET_INVALID ((int8_t)-2)
 
 /* Primitive batch group: like a batch group for buitin primitive meshes. This
  * type has additional functionality for applying the scale from a primitive

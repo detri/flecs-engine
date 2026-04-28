@@ -481,6 +481,7 @@ void flecsEngine_batch_group_init(
         result->mesh = *mesh;
     }
     result->group_id = group_id;
+    result->texture_bucket = FLECS_ENGINE_BUCKET_UNSET;
     ecs_vec_init_t(NULL, &result->changed, ecs_entity_t, 0);
     ecs_vec_init_t(NULL, &result->changed_slots, int32_t, 0);
     ecs_map_init(&result->changed_set, NULL);

@@ -275,13 +275,14 @@ static void flecsEngine_transparent_mesh_render(
     const FlecsRenderBatchImpl *self_impl =
         ecs_get(world, tctx->self_entity, FlecsRenderBatchImpl);
     wgpuRenderPassEncoderSetPipeline(pass, self_impl->pipeline_hdr);
-    if (engine->textures.array_bind_group) {
+    if (engine->textures.fallback_bind_group) {
         wgpuRenderPassEncoderSetBindGroup(
-            pass, 1, engine->textures.array_bind_group, 0, NULL);
+            pass, 1, engine->textures.fallback_bind_group, 0, NULL);
     }
 
     uint64_t active_group = 0;
     flecsEngine_batch_group_t *active_ctx = NULL;
+    int8_t last_bucket = -1;
 
     for (int32_t i = 0; i < total_instances; i ++) {
         uint64_t group_id = sorted[i].group_id;
@@ -298,6 +299,25 @@ static void flecsEngine_transparent_mesh_render(
                 active_ctx = NULL;
                 continue;
             }
+
+            if (active_ctx->texture_bucket == FLECS_ENGINE_BUCKET_INVALID) {
+                active_ctx = NULL;
+                continue;
+            }
+
+            int8_t b = active_ctx->texture_bucket;
+            WGPUBindGroup bg = engine->textures.fallback_bind_group;
+            if (b >= 0 && b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT) {
+                WGPUBindGroup bb = engine->textures.bucket_bind_groups[b];
+                if (bb) bg = bb;
+            } else {
+                b = -1;
+            }
+            if (b != last_bucket && bg) {
+                wgpuRenderPassEncoderSetBindGroup(pass, 1, bg, 0, NULL);
+                last_bucket = b;
+            }
+
             wgpuRenderPassEncoderSetVertexBuffer(
                 pass, 0, active_ctx->mesh.vertex_uv_buffer,
                 0, WGPU_WHOLE_SIZE);

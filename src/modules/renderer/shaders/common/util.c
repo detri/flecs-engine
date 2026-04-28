@@ -45,7 +45,7 @@ bool flecsEngine_shader_usesTextures(
 
     return strstr(
         shader->source,
-        "var albedo_tex_1024") != NULL;
+        "var albedo_tex") != NULL;
 }
 
 bool flecsEngine_shader_usesMaterialBuffer(

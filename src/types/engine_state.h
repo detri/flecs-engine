@@ -73,7 +73,9 @@ typedef struct {
     ecs_query_t *query;
 
     flecsEngine_texture_bucket_t buckets[FLECS_ENGINE_TEXTURE_BUCKET_COUNT];
-    WGPUBindGroup array_bind_group;
+    WGPUBindGroup bucket_bind_groups[FLECS_ENGINE_TEXTURE_BUCKET_COUNT];
+    WGPUBindGroup fallback_bind_group;
+    uint32_t bucket_version;
 
     WGPUBindGroupLayout pbr_bind_layout;
     WGPUSampler pbr_sampler;

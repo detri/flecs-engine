@@ -194,6 +194,34 @@ void flecsEngine_mesh_upload(
     ecs_os_free(list);
 }
 
+static bool flecsEngine_mesh_bindGroupTextures(
+    const FlecsEngineImpl *engine,
+    const flecsEngine_batch_t *buf,
+    const flecsEngine_batch_group_t *ctx,
+    WGPURenderPassEncoder pass,
+    int8_t *last_bucket)
+{
+    if (!buf->uses_textures) return true;
+    if (ctx->texture_bucket == FLECS_ENGINE_BUCKET_INVALID) return false;
+
+    int8_t b = ctx->texture_bucket;
+    WGPUBindGroup bg;
+    if (b >= 0 && b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT) {
+        bg = engine->textures.bucket_bind_groups[b];
+        if (!bg) bg = engine->textures.fallback_bind_group;
+    } else {
+        bg = engine->textures.fallback_bind_group;
+        b = -1;
+    }
+    if (!bg) return false;
+
+    if (b != *last_bucket) {
+        wgpuRenderPassEncoderSetBindGroup(pass, 1, bg, 0, NULL);
+        *last_bucket = b;
+    }
+    return true;
+}
+
 void flecsEngine_mesh_render(
     const ecs_world_t *world,
     const FlecsEngineImpl *engine,
@@ -214,6 +242,7 @@ void flecsEngine_mesh_render(
     flecsEngine_batch_bindMaterialGroup((FlecsEngineImpl*)engine, pass, buf);
     flecsEngine_batch_bindInstanceGroup((FlecsEngineImpl*)engine, pass, buf);
 
+    int8_t last_bucket = -1;
     ecs_map_iter_t git = ecs_map_iter(groups);
     while (ecs_map_next(&git)) {
         uint64_t group = ecs_map_key(&git);
@@ -222,6 +251,12 @@ void flecsEngine_mesh_render(
         flecsEngine_batch_group_t *ctx =
             ecs_query_get_group_ctx(batch->query, group);
         ecs_assert(ctx != NULL, ECS_INTERNAL_ERROR, NULL);
+
+        if (!flecsEngine_mesh_bindGroupTextures(
+                engine, buf, ctx, pass, &last_bucket))
+        {
+            continue;
+        }
 
         flecsEngine_batch_group_draw(engine, pass, ctx);
     }
@@ -240,6 +275,12 @@ void flecsEngine_mesh_render(
             flecsEngine_batch_group_t *ctx =
                 ecs_query_get_group_ctx(batch->query, group);
             if (!ctx || ctx->static_view.group_idx < 0) continue;
+
+            if (!flecsEngine_mesh_bindGroupTextures(
+                    engine, buf, ctx, pass, &last_bucket))
+            {
+                continue;
+            }
 
             flecsEngine_batch_group_drawStatic(engine, pass, ctx);
         }

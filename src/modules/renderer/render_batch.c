@@ -408,6 +408,13 @@ static void FlecsRenderBatch_on_set(
         impl.uses_textures = shader_impl->uses_textures;
         impl.uses_material_buffer = shader_impl->uses_material_buffer;
         impl.uses_instance_buffer = shader_impl->uses_instance_buffer;
+
+        if (rb[i].get_cull_buf) {
+            flecsEngine_batch_t *cb = rb[i].get_cull_buf(&rb[i]);
+            if (cb) {
+                cb->uses_textures = shader_impl->uses_textures;
+            }
+        }
         bool has_blend = rb[i].blend.color.operation != 0;
         const WGPUBlendState *blend = has_blend ? &rb[i].blend : NULL;
         WGPUCullMode cull_mode = rb[i].cull_mode;
@@ -491,13 +498,12 @@ void flecsEngine_renderBatch_render(
     }
 
     if (impl->uses_textures) {
-        if (!engine->textures.array_bind_group) {
-            /* Texture array not yet available this frame — skip. */
+        if (!engine->textures.fallback_bind_group) {
             FLECS_TRACY_ZONE_END;
             return;
         }
         wgpuRenderPassEncoderSetBindGroup(pass, 1,
-            engine->textures.array_bind_group, 0, NULL);
+            engine->textures.fallback_bind_group, 0, NULL);
     } else {
         WGPUBindGroup no_texture = flecsEngine_renderBatch_ensureNoTextureBindGroup(
             (FlecsEngineImpl*)engine);
