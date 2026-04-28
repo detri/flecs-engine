@@ -6,19 +6,10 @@ ECS_STRUCT(FlecsClouds, {
     float low_altitude_km;       /* cloud slab bottom, world altitude in km */
     float high_altitude_km;      /* cloud slab top, world altitude in km */
     float coverage;              /* 0..1 global coverage bias */
+    float cloud_type_bias;       /* -0.5..0.5 shifts type toward stratus / cumulonimbus */
     float density;               /* extinction scale */
     float wind_x;                /* world units per second */
     float wind_z;
-    /* Global time multiplier for all cloud progression (sky cloud scroll,
-     * weather CA, wind advection). 1.0 = real time, 0.0 = frozen, 2.0 =
-     * 2x faster. Independent of wind_x/wind_z which control drift
-     * direction and base speed. */
-    float time_scale;
-    /* Real-time seconds between CA ticks (CPU weather-texture updates).
-     * Independent of time_scale: 0.2 = 5 updates/sec regardless of how
-     * fast time_scale makes the clouds visually progress. Smaller values
-     * cost more CPU; larger values give coarser shape evolution. */
-    float weather_update_interval;
     float weather_scale_km;      /* world km per weather-texture tile */
     float noise_scale_km;        /* world km per noise-texture tile */
     /* Ground cloud-shadow controls. shadow_strength=0 disables. */
