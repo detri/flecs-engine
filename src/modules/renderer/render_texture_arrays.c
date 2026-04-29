@@ -2,7 +2,7 @@
 #include "flecs_engine.h"
 
 static const uint32_t flecs_engine_bucket_dim[FLECS_ENGINE_TEXTURE_BUCKET_COUNT] = {
-    512, 1024, 2048
+    128, 256, 512, 1024, 2048, 4096
 };
 
 /* Per-channel BC7 format. Albedo/emissive use sRGB for correct
@@ -21,15 +21,31 @@ static uint32_t flecsEngine_textureArray_mipCount(uint32_t dim)
     return count;
 }
 
-static uint8_t flecsEngine_textureArray_pickBucket(uint32_t w, uint32_t h)
+static uint8_t flecsEngine_textureArray_resolveMaxBucket(
+    const FlecsSurface *surface)
+{
+    if (surface) {
+        switch (surface->texture_quality) {
+        case FlecsTextureQualityLow:      return 2; /* 512  */
+        case FlecsTextureQualityMedium:   return 3; /* 1024 */
+        case FlecsTextureQualityHigh:     return 4; /* 2048 */
+        case FlecsTextureQualityVeryHigh: return 5; /* 4096 */
+        default: break;
+        }
+    }
+    return FLECS_ENGINE_TEXTURE_BUCKET_COUNT - 1;
+}
+
+static uint8_t flecsEngine_textureArray_pickBucket(
+    uint32_t w, uint32_t h, uint8_t max_bucket)
 {
     uint32_t max_dim = w > h ? w : h;
-    for (uint8_t b = 0; b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT; b++) {
+    for (uint8_t b = 0; b <= max_bucket; b++) {
         if (max_dim <= flecs_engine_bucket_dim[b]) {
             return b;
         }
     }
-    return FLECS_ENGINE_TEXTURE_BUCKET_COUNT - 1;
+    return max_bucket;
 }
 
 static bool flecsEngine_textureArray_isBC7(WGPUTextureFormat fmt)
@@ -72,6 +88,7 @@ typedef struct {
 static void flecsEngine_textureArray_censusFormats(
     const ecs_world_t *world,
     FlecsEngineImpl *impl,
+    uint8_t max_bucket,
     flecs_format_census_t census[FLECS_ENGINE_TEXTURE_BUCKET_COUNT])
 {
     for (int b = 0; b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT; b++) {
@@ -120,7 +137,8 @@ static void flecsEngine_textureArray_censusFormats(
             }
             if (!max_w || !max_h) continue;
 
-            uint8_t bucket = flecsEngine_textureArray_pickBucket(max_w, max_h);
+            uint8_t bucket =
+                flecsEngine_textureArray_pickBucket(max_w, max_h, max_bucket);
             if (any_bc7) census[bucket].bc7_count++;
             if (any_other) census[bucket].other_count++;
         }
@@ -129,9 +147,10 @@ static void flecsEngine_textureArray_censusFormats(
 
 static void flecsEngine_textureArray_decideBucketFormats(
     FlecsEngineImpl *impl,
+    uint8_t max_bucket,
     const flecs_format_census_t census[FLECS_ENGINE_TEXTURE_BUCKET_COUNT])
 {
-    uint8_t top_bucket = FLECS_ENGINE_TEXTURE_BUCKET_COUNT - 1;
+    uint8_t top_bucket = max_bucket;
     for (int b = 0; b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT; b++) {
         bool all_bc7 = census[b].bc7_count > 0 && census[b].other_count == 0;
         bool all_other = census[b].other_count > 0 && census[b].bc7_count == 0;
@@ -158,6 +177,7 @@ static void flecsEngine_textureArray_decideBucketFormats(
 static bool flecsEngine_textureArray_survey(
     ecs_world_t *world,
     FlecsEngineImpl *impl,
+    uint8_t max_bucket,
     uint32_t bucket_channel_layers[FLECS_ENGINE_TEXTURE_BUCKET_COUNT][4])
 {
     for (int b = 0; b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT; b++) {
@@ -178,6 +198,15 @@ static bool flecsEngine_textureArray_survey(
         for (int32_t i = 0; i < it.count; i++) {
             uint32_t mat_id = mat_ids[i].value;
             if (mat_id >= impl->materials.count) continue;
+
+            /* Reset layer fields; survey is the sole source of truth for
+             * (bucket, layer) and stale values from a prior build can
+             * point at slots that no longer hold this material's data. */
+            FlecsGpuMaterial *gm = &impl->materials.cpu_materials[mat_id];
+            gm->layer_albedo   = 0;
+            gm->layer_emissive = 0;
+            gm->layer_mr       = 0;
+            gm->layer_normal   = 0;
 
             ecs_entity_t tex_entities[4] = {
                 textures[i].albedo,
@@ -212,7 +241,8 @@ static bool flecsEngine_textureArray_survey(
 
             if (!max_w || !max_h) continue;
 
-            uint8_t bucket = flecsEngine_textureArray_pickBucket(max_w, max_h);
+            uint8_t bucket =
+                flecsEngine_textureArray_pickBucket(max_w, max_h, max_bucket);
 
             if (any_non_bc7 && impl->textures.buckets[bucket].is_bc7
                 && bucket > 0)
@@ -220,8 +250,7 @@ static bool flecsEngine_textureArray_survey(
                 bucket = bucket - 1;
             }
 
-            FlecsGpuMaterial *gm = &impl->materials.cpu_materials[mat_id];
-            gm->texture_bucket = bucket;
+            impl->materials.cpu_buckets[mat_id] = (int8_t)bucket;
 
             if (has_channel[0]) {
                 gm->layer_albedo = bucket_channel_layers[bucket][0]++;
@@ -573,15 +602,30 @@ void flecsEngine_material_buildTextureArrays(
         ? (uint16_t)surface->anisotropy
         : (uint16_t)FlecsAnisotropyHigh;
 
+    uint8_t max_bucket = flecsEngine_textureArray_resolveMaxBucket(surface);
+    impl->textures.applied_max_bucket = max_bucket;
+    impl->textures.applied_texture_quality = surface
+        ? (int32_t)surface->texture_quality
+        : (int32_t)FlecsTextureQualityDefault;
+
+    /* Reset bucket assignments — survey only overwrites entries it
+     * processes, and stale values from a prior build can point at
+     * buckets that no longer hold the material's textures. */
+    if (impl->materials.cpu_buckets && impl->materials.buffer_capacity) {
+        ecs_os_memset_n(
+            impl->materials.cpu_buckets, FLECS_ENGINE_BUCKET_UNSET,
+            int8_t, (int32_t)impl->materials.buffer_capacity);
+    }
+
     /* Pass 1: format census — decide BC7 vs RGBA8 per bucket. */
     flecs_format_census_t census[FLECS_ENGINE_TEXTURE_BUCKET_COUNT];
-    flecsEngine_textureArray_censusFormats(world, impl, census);
-    flecsEngine_textureArray_decideBucketFormats(impl, census);
+    flecsEngine_textureArray_censusFormats(world, impl, max_bucket, census);
+    flecsEngine_textureArray_decideBucketFormats(impl, max_bucket, census);
 
     /* Pass 2: slot assignment (format-aware, with redirection). */
     uint32_t bucket_channel_layers[FLECS_ENGINE_TEXTURE_BUCKET_COUNT][4];
     bool any_material = flecsEngine_textureArray_survey(
-        world, impl, bucket_channel_layers);
+        world, impl, max_bucket, bucket_channel_layers);
 
     if (!any_material) {
         /* No textured materials. Still build a bind group using the

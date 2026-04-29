@@ -126,8 +126,9 @@ static void flecsEngine_batch_group_extractTable(
     if (material_id && ctx->texture_bucket != FLECS_ENGINE_BUCKET_INVALID) {
         uint32_t mid = material_id[0].value;
         if (mid < engine->materials.count) {
-            int8_t b = (int8_t)
-                engine->materials.cpu_materials[mid].texture_bucket;
+            ctx->first_material_id = mid;
+            ctx->has_first_material_id = true;
+            int8_t b = engine->materials.cpu_buckets[mid];
             if (b >= 0 && b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT) {
                 if (ctx->texture_bucket == FLECS_ENGINE_BUCKET_UNSET) {
                     ctx->texture_bucket = b;
@@ -294,6 +295,20 @@ void flecsEngine_batch_group_extract(
     if (ctx->resolved_bucket_version != engine->textures.bucket_version) {
         ctx->texture_bucket = FLECS_ENGINE_BUCKET_UNSET;
         ctx->resolved_bucket_version = engine->textures.bucket_version;
+
+        /* Static-only groups won't see any tables in the iter below
+         * (their entities have FlecsBufferSlot which the batch query
+         * excludes), so re-resolve eagerly from the previously-seen
+         * material_id if we have one. */
+        if (ctx->has_first_material_id &&
+            ctx->first_material_id < engine->materials.count)
+        {
+            int8_t b =
+                engine->materials.cpu_buckets[ctx->first_material_id];
+            if (b >= 0 && b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT) {
+                ctx->texture_bucket = b;
+            }
+        }
     }
 
     ecs_iter_t it = ecs_query_iter(world, batch->query);

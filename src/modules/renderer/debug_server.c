@@ -268,7 +268,8 @@ static void page_textures(
 
                         const FlecsGpuMaterial *gm =
                             &impl->materials.cpu_materials[mat_id];
-                        if (gm->texture_bucket != (uint32_t)b_idx) continue;
+                        if (impl->materials.cpu_buckets[mat_id] !=
+                            (int8_t)b_idx) continue;
 
                         ecs_entity_t tex_entities[4] = {
                             textures[i].albedo,

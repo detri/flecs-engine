@@ -38,7 +38,10 @@ typedef struct {
     ecs_query_t *spot_light_query;
 } flecsEngine_lighting_t;
 
-#define FLECS_ENGINE_TEXTURE_BUCKET_COUNT 3
+#define FLECS_ENGINE_TEXTURE_BUCKET_COUNT 6
+
+#define FLECS_ENGINE_BUCKET_UNSET   ((int8_t)-1)
+#define FLECS_ENGINE_BUCKET_INVALID ((int8_t)-2)
 
 typedef struct {
     WGPUTexture texture_arrays[4];       /* albedo, emissive, roughness, normal */
@@ -53,6 +56,7 @@ typedef struct {
 typedef struct {
     WGPUBuffer buffer;
     FlecsGpuMaterial *cpu_materials;
+    int8_t *cpu_buckets;
     uint32_t buffer_capacity;
     uint32_t count;
     ecs_query_t *query;
@@ -81,6 +85,8 @@ typedef struct {
     WGPUSampler pbr_sampler;
     WGPUSampler pbr_low_sampler;
     uint16_t applied_max_aniso;
+    uint8_t  applied_max_bucket;
+    int32_t  applied_texture_quality;
 
     WGPUTexture fallback_white_tex;
     WGPUTextureView fallback_white_array_view;

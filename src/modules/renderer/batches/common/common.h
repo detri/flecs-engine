@@ -104,10 +104,15 @@ typedef struct flecsEngine_batch_group_t {
 
     int8_t texture_bucket;
     uint32_t resolved_bucket_version;
+    uint32_t first_material_id;     /* sticky: last seen material_id used to
+                                       resolve texture_bucket; lets us re-resolve
+                                       the bucket on a bucket_version bump even
+                                       when the batch query returns no tables
+                                       (e.g. all entities are static and now
+                                       carry FlecsBufferSlot which excludes
+                                       them from the query). */
+    bool has_first_material_id;
 } flecsEngine_batch_group_t;
-
-#define FLECS_ENGINE_BUCKET_UNSET   ((int8_t)-1)
-#define FLECS_ENGINE_BUCKET_INVALID ((int8_t)-2)
 
 /* Primitive batch group: like a batch group for buitin primitive meshes. This
  * type has additional functionality for applying the scale from a primitive

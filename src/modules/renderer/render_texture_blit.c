@@ -220,8 +220,9 @@ void flecsEngine_textureArray_blitTextures(
 
             const FlecsGpuMaterial *gm =
                 &impl->materials.cpu_materials[mat_id];
-            uint8_t bucket = (uint8_t)gm->texture_bucket;
-            if (bucket >= FLECS_ENGINE_TEXTURE_BUCKET_COUNT) continue;
+            int8_t b = impl->materials.cpu_buckets[mat_id];
+            if (b < 0 || b >= FLECS_ENGINE_TEXTURE_BUCKET_COUNT) continue;
+            uint8_t bucket = (uint8_t)b;
 
             flecsEngine_texture_bucket_t *bk = &impl->textures.buckets[bucket];
             if (bk->is_bc7) continue;  /* handled by BC7 copy path */
@@ -378,8 +379,9 @@ void flecsEngine_textureArray_copyTextures_bc7(
 
             const FlecsGpuMaterial *gm =
                 &impl->materials.cpu_materials[mat_id];
-            uint8_t bucket = (uint8_t)gm->texture_bucket;
-            if (bucket >= FLECS_ENGINE_TEXTURE_BUCKET_COUNT) continue;
+            int8_t b = impl->materials.cpu_buckets[mat_id];
+            if (b < 0 || b >= FLECS_ENGINE_TEXTURE_BUCKET_COUNT) continue;
+            uint8_t bucket = (uint8_t)b;
 
             flecsEngine_texture_bucket_t *bk = &impl->textures.buckets[bucket];
             if (!bk->is_bc7) continue;  /* RGBA8 buckets handled by blit */

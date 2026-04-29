@@ -57,7 +57,6 @@ typedef struct {
     float roughness;
     float emissive_strength;
     flecs_rgba_t emissive_color;
-    uint32_t texture_bucket;
     uint32_t layer_albedo;
     uint32_t layer_emissive;
     uint32_t layer_mr;

@@ -23,6 +23,14 @@ ECS_ENUM(FlecsMsaa, {
     FlecsMsaa8x      = 8,
 });
 
+ECS_ENUM(FlecsTextureQuality, {
+    FlecsTextureQualityDefault  = 0,
+    FlecsTextureQualityLow      = 512,
+    FlecsTextureQualityMedium   = 1024,
+    FlecsTextureQualityHigh     = 2048,
+    FlecsTextureQualityVeryHigh = 4096,
+});
+
 ECS_STRUCT(FlecsSurface, {
     int32_t width;
     int32_t height;
@@ -33,6 +41,7 @@ ECS_STRUCT(FlecsSurface, {
     bool vsync;
     bool gpu_timings;
     FlecsAnisotropy anisotropy;
+    FlecsTextureQuality texture_quality;
     const char *title;
     const char *write_to_file;
 });

@@ -37,9 +37,17 @@ static void flecsEngine_material_ensureBufferCapacity(
         ecs_os_malloc_n(FlecsGpuMaterial, new_capacity);
     ecs_assert(new_cpu_materials != NULL, ECS_OUT_OF_MEMORY, NULL);
 
+    int8_t *new_cpu_buckets =
+        ecs_os_malloc_n(int8_t, new_capacity);
+    ecs_assert(new_cpu_buckets != NULL, ECS_OUT_OF_MEMORY, NULL);
+    ecs_os_memset_n(new_cpu_buckets, FLECS_ENGINE_BUCKET_UNSET,
+        int8_t, (int32_t)new_capacity);
+
     if (impl->materials.cpu_materials && impl->materials.buffer_capacity) {
         ecs_os_memcpy_n(new_cpu_materials, impl->materials.cpu_materials,
             FlecsGpuMaterial, (int32_t)impl->materials.buffer_capacity);
+        ecs_os_memcpy_n(new_cpu_buckets, impl->materials.cpu_buckets,
+            int8_t, (int32_t)impl->materials.buffer_capacity);
     }
 
     WGPUBuffer new_material_buffer = wgpuDeviceCreateBuffer(
@@ -54,9 +62,11 @@ static void flecsEngine_material_ensureBufferCapacity(
     }
 
     ecs_os_free(impl->materials.cpu_materials);
+    ecs_os_free(impl->materials.cpu_buckets);
 
     impl->materials.buffer = new_material_buffer;
     impl->materials.cpu_materials = new_cpu_materials;
+    impl->materials.cpu_buckets = new_cpu_buckets;
     impl->materials.buffer_capacity = new_capacity;
 
     impl->scene_bind_version ++;
@@ -77,6 +87,8 @@ void flecsEngine_material_releaseBuffer(
 
     ecs_os_free(impl->materials.cpu_materials);
     impl->materials.cpu_materials = NULL;
+    ecs_os_free(impl->materials.cpu_buckets);
+    impl->materials.cpu_buckets = NULL;
 
     impl->materials.buffer_capacity = 0;
     impl->materials.count = 0;
@@ -108,7 +120,6 @@ FlecsGpuMaterial flecsEngine_material_pack(
         .roughness = p.roughness,
         .emissive_strength = e.strength,
         .emissive_color = e.color,
-        .texture_bucket = 1,
         .uv_scale_x = 1.0f,
         .uv_scale_y = 1.0f
     };
@@ -165,6 +176,9 @@ redo: {
         if (capacity) {
             ecs_os_memset_n(
                 impl->materials.cpu_materials, 0, FlecsGpuMaterial, capacity);
+            ecs_os_memset_n(
+                impl->materials.cpu_buckets, FLECS_ENGINE_BUCKET_UNSET,
+                int8_t, (int32_t)capacity);
         }
 
         ecs_iter_t it = ecs_query_iter(world, impl->materials.query);

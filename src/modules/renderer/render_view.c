@@ -913,13 +913,13 @@ static void flecsEngine_renderView_render(
     flecsEngine_gpuCull_dispatchAll(
         world, engine, impl, view_entity, encoder);
 
-    if (view->shadow.enabled) {
-        if (flecsEngine_shadow_ensureViewSize(
-            engine, impl, (uint32_t)view->shadow.map_size))
-        {
-            ecs_err("failed to resize shadow maps");
-        }
+    if (flecsEngine_shadow_ensureViewSize(
+        engine, impl, (uint32_t)view->shadow.map_size))
+    {
+        ecs_err("failed to resize shadow maps");
+    }
 
+    if (view->shadow.enabled) {
         flecsEngine_renderView_renderShadow(
             world, view_entity, engine, view, impl, encoder);
     }

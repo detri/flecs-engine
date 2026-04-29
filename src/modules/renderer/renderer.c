@@ -207,6 +207,13 @@ static void FlecsEngineMaterialManager(
     flecsEngine_material_uploadBuffer(it->world, impl);
     FLECS_TRACY_ZONE_END_N(__matu);
 
+    if (impl->textures.fallback_bind_group &&
+        impl->textures.applied_texture_quality !=
+            (int32_t)surface->texture_quality)
+    {
+        flecsEngine_material_buildTextureArrays(it->world, impl);
+    }
+
     {
         uint16_t desired_aniso = (surface->anisotropy != FlecsAnisotropyDefault)
             ? (uint16_t)surface->anisotropy

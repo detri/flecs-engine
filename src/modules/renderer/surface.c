@@ -4,6 +4,7 @@
 
 ECS_COMPONENT_DECLARE(FlecsAnisotropy);
 ECS_COMPONENT_DECLARE(FlecsMsaa);
+ECS_COMPONENT_DECLARE(FlecsTextureQuality);
 ECS_COMPONENT_DECLARE(FlecsSurface);
 ECS_COMPONENT_DECLARE(FlecsSurfaceImpl);
 
@@ -202,6 +203,7 @@ void flecsEngine_surface_register(
 {
     ECS_META_COMPONENT(world, FlecsAnisotropy);
     ECS_META_COMPONENT(world, FlecsMsaa);
+    ECS_META_COMPONENT(world, FlecsTextureQuality);
     ECS_META_COMPONENT(world, FlecsSurface);
 
     ECS_COMPONENT_DEFINE(world, FlecsSurfaceImpl);

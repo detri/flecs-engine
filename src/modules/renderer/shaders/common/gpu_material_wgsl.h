@@ -8,7 +8,6 @@
     "  roughness : f32,\n" \
     "  emissive_strength : f32,\n" \
     "  emissive_color : u32,\n" \
-    "  texture_bucket : u32,\n" \
     "  layer_albedo : u32,\n" \
     "  layer_emissive : u32,\n" \
     "  layer_mr : u32,\n" \
