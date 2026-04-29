@@ -522,6 +522,37 @@ static void flecsEngine_textureArray_createBindGroup(
             impl, layout, aniso_sampler, low_sampler, fallback_views);
 }
 
+void flecsEngine_textureArray_rebuildBindGroups(
+    FlecsEngineImpl *impl)
+{
+    WGPUSampler aniso_sampler = impl->textures.pbr_sampler;
+    WGPUSampler low_sampler   = impl->textures.pbr_low_sampler;
+    WGPUBindGroupLayout layout =
+        flecsEngine_textures_ensureBindLayout(impl);
+
+    for (int b = 0; b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT; b++) {
+        FLECS_WGPU_RELEASE(impl->textures.bucket_bind_groups[b],
+            wgpuBindGroupRelease);
+        flecsEngine_texture_bucket_t *bk = &impl->textures.buckets[b];
+        WGPUTextureView views[4] = {
+            bk->texture_array_views[0],
+            bk->texture_array_views[1],
+            bk->texture_array_views[2],
+            bk->texture_array_views[3]
+        };
+        impl->textures.bucket_bind_groups[b] =
+            flecsEngine_textureArray_createBucketBindGroup(
+                impl, layout, aniso_sampler, low_sampler, views);
+    }
+
+    FLECS_WGPU_RELEASE(impl->textures.fallback_bind_group,
+        wgpuBindGroupRelease);
+    WGPUTextureView fallback_views[4] = { NULL, NULL, NULL, NULL };
+    impl->textures.fallback_bind_group =
+        flecsEngine_textureArray_createBucketBindGroup(
+            impl, layout, aniso_sampler, low_sampler, fallback_views);
+}
+
 /* ---- Build orchestrator ---- */
 
 void flecsEngine_material_buildTextureArrays(

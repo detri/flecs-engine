@@ -25,6 +25,9 @@ void flecsEngine_material_buildTextureArrays(
     ecs_world_t *world,
     FlecsEngineImpl *impl);
 
+void flecsEngine_textureArray_rebuildBindGroups(
+    FlecsEngineImpl *impl);
+
 #define FLECS_ENGINE_BUCKET_FORMAT WGPUTextureFormat_RGBA8Unorm
 
 void flecsEngine_textureArray_release(

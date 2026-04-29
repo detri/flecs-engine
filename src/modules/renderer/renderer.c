@@ -212,14 +212,11 @@ static void FlecsEngineMaterialManager(
             ? (uint16_t)surface->anisotropy
             : (uint16_t)FlecsAnisotropyHigh;
         if (impl->textures.applied_max_aniso &&
-            impl->textures.applied_max_aniso != desired_aniso)
+            impl->textures.applied_max_aniso != desired_aniso &&
+            impl->textures.fallback_bind_group)
         {
-            FLECS_WGPU_RELEASE(impl->textures.fallback_bind_group,
-                wgpuBindGroupRelease);
-            for (int b = 0; b < FLECS_ENGINE_TEXTURE_BUCKET_COUNT; b++) {
-                FLECS_WGPU_RELEASE(impl->textures.bucket_bind_groups[b],
-                    wgpuBindGroupRelease);
-            }
+            flecsEngine_pbr_texture_ensureSamplers(impl, desired_aniso);
+            flecsEngine_textureArray_rebuildBindGroups(impl);
         }
     }
 
