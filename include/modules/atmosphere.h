@@ -55,8 +55,6 @@ ECS_STRUCT(FlecsAtmosphere, {
 
 extern ECS_COMPONENT_DECLARE(FlecsAtmosphere);
 
-FlecsAtmosphere flecsEngine_atmosphereSettingsDefault(void);
-
 void flecsEngine_atmos_sunTransmittance(
     const FlecsAtmosphere *atm,
     float sun_cos_zenith,

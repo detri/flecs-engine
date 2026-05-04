@@ -9,16 +9,16 @@ static WGPURenderPipeline flecsEngine_renderEffect_createPipeline(
     WGPUBindGroupLayout bind_layout,
     WGPUTextureFormat color_format);
 
-ECS_COMPONENT_DECLARE(FlecsRenderEffect);
+ECS_COMPONENT_DECLARE(FlecsRenderEffectKind);
 ECS_COMPONENT_DECLARE(FlecsRenderEffectImpl);
 
-ECS_DTOR(FlecsRenderEffect, ptr, {
+ECS_DTOR(FlecsRenderEffectKind, ptr, {
     if (ptr->ctx && ptr->free_ctx) {
         ptr->free_ctx(ptr->ctx);
     }
 })
 
-ECS_MOVE(FlecsRenderEffect, dst, src, {
+ECS_MOVE(FlecsRenderEffectKind, dst, src, {
     if (dst->ctx && dst->free_ctx) {
         dst->free_ctx(dst->ctx);
     }
@@ -63,14 +63,14 @@ bool flecsEngine_renderEffect_render(
     WGPULoadOp load_op,
     WGPUColor clear_value,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *impl,
     WGPUTextureView input_view,
     WGPUTextureFormat output_format,
     const char *ts_name,
     const WGPURenderPassTimestampWrites *ts_writes)
 {
-    ecs_assert(effect != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_assert(kind != NULL, ECS_INVALID_PARAMETER, NULL);
     ecs_assert(impl != NULL, ECS_INVALID_PARAMETER, NULL);
     ecs_assert(input_view != NULL, ECS_INVALID_PARAMETER, NULL);
 
@@ -80,13 +80,13 @@ bool flecsEngine_renderEffect_render(
     };
 
     uint32_t entry_count = 2;
-    if (effect->bind_callback) {
-        bool bind_ok = effect->bind_callback(
+    if (kind->bind_callback) {
+        bool bind_ok = kind->bind_callback(
             world,
             engine,
             view_impl,
             effect_entity,
-            effect,
+            kind,
             impl,
             entries,
             &entry_count);
@@ -196,16 +196,16 @@ void flecsEngine_renderView_renderEffects(
         }
 
         ecs_entity_t entity = effects[i].effect;
-        const FlecsRenderEffect *effect = ecs_get(
-            world, entity, FlecsRenderEffect);
+        const FlecsRenderEffectKind *kind = ecs_get(
+            world, entity, FlecsRenderEffectKind);
         FlecsRenderEffectImpl *effect_impl = ecs_get_mut(
             world, entity, FlecsRenderEffectImpl);
 
-        ecs_assert(effect != NULL, ECS_INVALID_PARAMETER, NULL);
+        ecs_assert(kind != NULL, ECS_INVALID_PARAMETER, NULL);
         ecs_assert(effect_impl != NULL, ECS_INVALID_PARAMETER, NULL);
 
-        ecs_assert(effect->input >= 0, ECS_INVALID_PARAMETER, NULL);
-        ecs_assert(effect->input <= i, ECS_INVALID_PARAMETER, NULL);
+        ecs_assert(effects[i].input >= 0, ECS_INVALID_PARAMETER, NULL);
+        ecs_assert(effects[i].input <= i, ECS_INVALID_PARAMETER, NULL);
 
         const char *effect_name = ecs_get_name(world, entity);
         FLECS_TRACY_ZONE_BEGIN_DYN(effect_zone, "Effect", effect_name);
@@ -219,20 +219,24 @@ void flecsEngine_renderView_renderEffects(
             ? flecsEngine_getViewTargetFormat(engine)
             : viewImpl->effect_target_format;
 
+        /* input == 0 means "previous effect's output" (or the batches
+         * framebuffer for the first effect). Any explicit non-zero input
+         * picks that specific point in the chain. */
+        int32_t requested_input = effects[i].input ? effects[i].input : i;
         int32_t resolved_input = flecsEngine_resolveEffectInput(
-            effects, effect->input);
+            effects, requested_input);
         WGPUTextureView input_view =
             viewImpl->effect_target_views[resolved_input];
         WGPULoadOp load_op = writes_to_final ? WGPULoadOp_Load : WGPULoadOp_Clear;
 
-        if (effect->render_callback) {
-            bool render_ok = effect->render_callback(
+        if (kind->render_callback) {
+            bool render_ok = kind->render_callback(
                 world,
                 engine,
                 viewImpl,
                 encoder,
                 entity,
-                effect,
+                kind,
                 effect_impl,
                 input_view,
                 viewImpl->effect_target_format,
@@ -251,7 +255,7 @@ void flecsEngine_renderView_renderEffects(
         flecsEngine_renderEffect_render(
             world, engine, viewImpl, encoder,
             output_view, load_op, (WGPUColor){0, 0, 0, 1},
-            entity, effect, effect_impl,
+            entity, kind, effect_impl,
             input_view, output_format,
             effect_name ? effect_name : "Effect", NULL);
 
@@ -308,11 +312,11 @@ static WGPURenderPipeline flecsEngine_renderEffect_createPipeline(
         &color_target, NULL);
 }
 
-static void FlecsRenderEffect_on_set(
+static void FlecsRenderEffectKind_on_set(
     ecs_iter_t *it)
 {
     ecs_world_t *world = it->world;
-    FlecsRenderEffect *effects = ecs_field(it, FlecsRenderEffect, 0);
+    FlecsRenderEffectKind *kinds = ecs_field(it, FlecsRenderEffectKind, 0);
     const FlecsEngineImpl *engine = ecs_singleton_get(world, FlecsEngineImpl);
     if (!engine) {
         ecs_err("cannot build render effects: engine is not initialized");
@@ -324,17 +328,17 @@ static void FlecsRenderEffect_on_set(
 
         FlecsRenderEffectImpl impl = {};
 
-        if (!effects[i].shader) {
+        if (!kinds[i].shader) {
             char *effect_name = ecs_get_path(world, e);
             ecs_err("missing shader asset for render effect %s", effect_name);
             ecs_os_free(effect_name);
             continue;
         }
 
-        const FlecsShader *shader = ecs_get(world, effects[i].shader, FlecsShader);
+        const FlecsShader *shader = ecs_get(world, kinds[i].shader, FlecsShader);
         if (!shader) {
             char *effect_name = ecs_get_path(world, e);
-            char *shader_name = ecs_get_path(world, effects[i].shader);
+            char *shader_name = ecs_get_path(world, kinds[i].shader);
             ecs_err("invalid shader asset '%s' for render effect %s",
                 shader_name, effect_name);
             ecs_os_free(shader_name);
@@ -343,7 +347,7 @@ static void FlecsRenderEffect_on_set(
         }
 
         const FlecsShaderImpl *shader_impl = flecsEngine_shader_ensureImpl(
-            (ecs_world_t*)world, effects[i].shader);
+            (ecs_world_t*)world, kinds[i].shader);
         if (!shader_impl || !shader_impl->shader_module) {
             char *effect_name = ecs_get_path(world, e);
             ecs_err("missing compiled shader for render effect %s", effect_name);
@@ -377,12 +381,12 @@ static void FlecsRenderEffect_on_set(
             }
         };
 
-        if (effects[i].setup_callback) {
-            if (!effects[i].setup_callback(
+        if (kinds[i].setup_callback) {
+            if (!kinds[i].setup_callback(
                 world,
                 engine,
                 e,
-                &effects[i],
+                &kinds[i],
                 &impl,
                 layout_entries,
                 &layout_entry_count))
@@ -392,7 +396,7 @@ static void FlecsRenderEffect_on_set(
             }
         }
 
-        if (layout_entry_count > 2 && !effects[i].bind_callback) {
+        if (layout_entry_count > 2 && !kinds[i].bind_callback) {
             char *effect_name = ecs_get_path(world, e);
             ecs_err(
                 "render effect %s has custom setup bindings but no bind callback",
@@ -448,14 +452,14 @@ static void FlecsRenderEffect_on_set(
 void flecsEngine_renderEffect_register(
     ecs_world_t *world)
 {
-    ECS_COMPONENT_DEFINE(world, FlecsRenderEffect);
+    ECS_COMPONENT_DEFINE(world, FlecsRenderEffectKind);
     ECS_COMPONENT_DEFINE(world, FlecsRenderEffectImpl);
 
-    ecs_set_hooks(world, FlecsRenderEffect, {
+    ecs_set_hooks(world, FlecsRenderEffectKind, {
         .ctor = flecs_default_ctor,
-        .move = ecs_move(FlecsRenderEffect),
-        .dtor = ecs_dtor(FlecsRenderEffect),
-        .on_set = FlecsRenderEffect_on_set
+        .move = ecs_move(FlecsRenderEffectKind),
+        .dtor = ecs_dtor(FlecsRenderEffectKind),
+        .on_set = FlecsRenderEffectKind_on_set
     });
 
     ecs_set_hooks(world, FlecsRenderEffectImpl, {

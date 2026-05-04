@@ -826,12 +826,12 @@ static bool flecsEngine_clouds_setup(
     const ecs_world_t *world,
     const FlecsEngineImpl *engine,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupLayoutEntry *layout_entries,
     uint32_t *entry_count)
 {
-    (void)effect;
+    (void)kind;
     (void)effect_impl;
 
     const FlecsClouds *cfg = ecs_get(world, effect_entity, FlecsClouds);
@@ -1282,12 +1282,12 @@ static bool flecsEngine_clouds_bind(
     const FlecsEngineImpl *engine,
     const FlecsRenderViewImpl *view_impl,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     const FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupEntry *entries,
     uint32_t *entry_count)
 {
-    (void)effect;
+    (void)kind;
     (void)effect_impl;
     (void)engine;
 
@@ -1456,7 +1456,7 @@ static bool flecsEngine_clouds_render(
     const FlecsRenderViewImpl *view_impl,
     WGPUCommandEncoder encoder,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUTextureView input_view,
     WGPUTextureFormat input_format,
@@ -1501,7 +1501,7 @@ static bool flecsEngine_clouds_render(
         return flecsEngine_renderEffect_render(
             world, engine, view_impl, encoder,
             output_view, output_load_op, (WGPUColor){0, 0, 0, 1},
-            effect_entity, effect, effect_impl,
+            effect_entity, kind, effect_impl,
             input_view, output_format,
             "Clouds", NULL);
     }
@@ -1515,7 +1515,7 @@ static bool flecsEngine_clouds_render(
     if (!flecsEngine_renderEffect_render(
             world, engine, view_impl, encoder,
             impl->lowres_view, WGPULoadOp_Clear, (WGPUColor){0, 0, 0, 1},
-            effect_entity, effect, effect_impl,
+            effect_entity, kind, effect_impl,
             input_view, impl->lowres_format,
             "CloudsLowRes", NULL))
     {
@@ -1529,9 +1529,8 @@ static bool flecsEngine_clouds_render(
         engine, "CloudsUpsample", NULL);
 }
 
-FlecsClouds flecsEngine_cloudsSettingsDefault(void)
-{
-    return (FlecsClouds){
+ECS_CTOR(FlecsClouds, ptr, {
+    *ptr = (FlecsClouds){
         .appearance = {
             .atmosphere = 0,
             .low_altitude_km = 0.1f,
@@ -1563,28 +1562,20 @@ FlecsClouds flecsEngine_cloudsSettingsDefault(void)
             .max_distance_km = 200.0f
         }
     };
-}
+})
 
-ecs_entity_t flecsEngine_createEffect_clouds(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsClouds *settings)
+static void FlecsClouds_on_set(
+    ecs_iter_t *it)
 {
-    ecs_entity_t effect = ecs_entity(world, { .parent = parent, .name = name });
-
-    FlecsClouds c = settings ? *settings : flecsEngine_cloudsSettingsDefault();
-    ecs_set_ptr(world, effect, FlecsClouds, &c);
-    ecs_set(world, effect, FlecsRenderEffect, {
-        .shader = flecsEngine_clouds_shader(world),
-        .input = input,
-        .setup_callback = flecsEngine_clouds_setup,
-        .bind_callback = flecsEngine_clouds_bind,
-        .render_callback = flecsEngine_clouds_render
-    });
-
-    return effect;
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_entity_t e = it->entities[i];
+        ecs_set(it->world, e, FlecsRenderEffectKind, {
+            .shader = flecsEngine_clouds_shader(it->world),
+            .setup_callback = flecsEngine_clouds_setup,
+            .bind_callback = flecsEngine_clouds_bind,
+            .render_callback = flecsEngine_clouds_render
+        });
+    }
 }
 
 void flecsEngine_clouds_register(
@@ -1592,6 +1583,10 @@ void flecsEngine_clouds_register(
 {
     ECS_COMPONENT_DEFINE(world, FlecsClouds);
     ECS_COMPONENT_DEFINE(world, FlecsCloudsImpl);
+
+    ecs_set_hooks(world, FlecsClouds, {
+        .ctor = ecs_ctor(FlecsClouds)
+    });
 
     ecs_set_hooks(world, FlecsCloudsImpl, {
         .ctor = flecs_default_ctor,
@@ -1648,5 +1643,11 @@ void flecsEngine_clouds_register(
             { .name = "shadows", .type = shadows_t },
             { .name = "performance", .type = performance_t }
         }
+    });
+
+    ecs_observer(world, {
+        .query.terms = {{ .id = ecs_id(FlecsClouds) }},
+        .events = { EcsOnSet },
+        .callback = FlecsClouds_on_set
     });
 }

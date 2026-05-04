@@ -1,13 +1,13 @@
 #ifndef FLECS_ENGINE_RENDER_EFFECTS_INTERNAL_H
 #define FLECS_ENGINE_RENDER_EFFECTS_INTERNAL_H
 
-struct FlecsRenderEffect;
+struct FlecsRenderEffectKind;
 
 typedef bool (*flecs_render_effect_setup_callback)(
     const ecs_world_t *world,
     const FlecsEngineImpl *engine,
     ecs_entity_t effect_entity,
-    const struct FlecsRenderEffect *effect,
+    const struct FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupLayoutEntry *layout_entries,
     uint32_t *entry_count);
@@ -17,7 +17,7 @@ typedef bool (*flecs_render_effect_bind_callback)(
     const FlecsEngineImpl *engine,
     const FlecsRenderViewImpl *view_impl,
     ecs_entity_t effect_entity,
-    const struct FlecsRenderEffect *effect,
+    const struct FlecsRenderEffectKind *kind,
     const FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupEntry *entries,
     uint32_t *entry_count);
@@ -28,7 +28,7 @@ typedef bool (*flecs_render_effect_render_callback)(
     const FlecsRenderViewImpl *view_impl,
     WGPUCommandEncoder encoder,
     ecs_entity_t effect_entity,
-    const struct FlecsRenderEffect *effect,
+    const struct FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUTextureView input_view,
     WGPUTextureFormat input_format,
@@ -36,18 +36,18 @@ typedef bool (*flecs_render_effect_render_callback)(
     WGPUTextureFormat output_format,
     WGPULoadOp output_load_op);
 
-// Fullscreen post-process effect. Input uses chain indexing:
-// 0 = batches framebuffer, k > 0 = output of effect[k - 1].
-ECS_STRUCT(FlecsRenderEffect, {
+/* Per-effect-kind dispatch: shader + callbacks. Set by an observer on the
+ * effect's settings (or tag) component, not by the user. */
+typedef struct FlecsRenderEffectKind {
     ecs_entity_t shader;
-    int32_t input;
-ECS_PRIVATE
     flecs_render_effect_setup_callback setup_callback;
     flecs_render_effect_bind_callback bind_callback;
     flecs_render_effect_render_callback render_callback;
     void *ctx;
     void (*free_ctx)(void *ctx);
-});
+} FlecsRenderEffectKind;
+
+extern ECS_COMPONENT_DECLARE(FlecsRenderEffectKind);
 
 int flecsEngine_initPassthrough(
     ecs_world_t *world,
@@ -83,6 +83,12 @@ void flecsEngine_sunShafts_register(
 void flecsEngine_autoExposure_register(
     ecs_world_t *world);
 
+void flecsEngine_invert_register(
+    ecs_world_t *world);
+
+void flecsEngine_gammaCorrect_register(
+    ecs_world_t *world);
+
 bool flecsEngine_renderEffect_render(
     const ecs_world_t *world,
     FlecsEngineImpl *engine,
@@ -92,7 +98,7 @@ bool flecsEngine_renderEffect_render(
     WGPULoadOp load_op,
     WGPUColor clear_value,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUTextureView input_view,
     WGPUTextureFormat output_format,

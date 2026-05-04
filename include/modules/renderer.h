@@ -52,8 +52,11 @@ ECS_STRUCT(flecs_engine_shadow_params_t, {
     float max_range;
 });
 
+/* Fullscreen post-process effect entry. Input uses chain indexing:
+ * 0 = batches framebuffer, k > 0 = output of effect[k - 1]. */
 ECS_STRUCT(flecs_render_view_effect_t, {
     ecs_bool_t enabled;
+    int32_t input;
     ecs_entity_t effect;
 });
 

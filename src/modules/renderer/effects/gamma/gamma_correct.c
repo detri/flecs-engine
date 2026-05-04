@@ -1,6 +1,8 @@
 #include "../../renderer.h"
 #include "flecs_engine.h"
 
+ECS_COMPONENT_DECLARE(FlecsGammaCorrect);
+
 static const char *kShaderSource =
     FLECS_ENGINE_FULLSCREEN_VS_WGSL
     "@group(0) @binding(0) var input_texture : texture_2d<f32>;\n"
@@ -22,17 +24,25 @@ static ecs_entity_t flecsEngine_gammaCorrect_shader(
         });
 }
 
-ecs_entity_t flecsEngine_createEffect_gammaCorrect(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input)
+static void FlecsGammaCorrect_on_add(
+    ecs_iter_t *it)
 {
-    ecs_entity_t effect = ecs_entity(world, { .parent = parent, .name = name });
-    ecs_set(world, effect, FlecsRenderEffect, {
-        .shader = flecsEngine_gammaCorrect_shader(world),
-        .input = input
-    });
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_entity_t e = it->entities[i];
+        ecs_set(it->world, e, FlecsRenderEffectKind, {
+            .shader = flecsEngine_gammaCorrect_shader(it->world)
+        });
+    }
+}
 
-    return effect;
+void flecsEngine_gammaCorrect_register(
+    ecs_world_t *world)
+{
+    ECS_COMPONENT_DEFINE(world, FlecsGammaCorrect);
+
+    ecs_observer(world, {
+        .query.terms = {{ .id = ecs_id(FlecsGammaCorrect) }},
+        .events = { EcsOnAdd },
+        .callback = FlecsGammaCorrect_on_add
+    });
 }

@@ -151,19 +151,16 @@ static const char *kPassthroughShaderSource =
     "    return textureSample(input_texture, input_sampler, in.uv);\n"
     "}\n";
 
-FlecsAutoExposure flecsEngine_autoExposureSettingsDefault(void)
-{
-    return (FlecsAutoExposure){
-        .min_brightness = 0.1f,
-        .max_brightness = 0.3f,
-        .min_log_luma = -8.0f,
-        .max_log_luma = 4.0f,
-        .speed_up = 3.0f,
-        .speed_down = 1.0f,
-        .low_percentile = 0.5f,
-        .high_percentile = 0.95f
-    };
-}
+ECS_CTOR(FlecsAutoExposure, ptr, {
+    ptr->min_brightness = 0.1f;
+    ptr->max_brightness = 0.3f;
+    ptr->min_log_luma = -8.0f;
+    ptr->max_log_luma = 4.0f;
+    ptr->speed_up = 3.0f;
+    ptr->speed_down = 1.0f;
+    ptr->low_percentile = 0.5f;
+    ptr->high_percentile = 0.95f;
+})
 
 static ecs_entity_t flecsEngine_autoExposure_shader(
     ecs_world_t *world)
@@ -241,12 +238,12 @@ static bool flecsEngine_autoExposure_setup(
     const ecs_world_t *world,
     const FlecsEngineImpl *engine,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupLayoutEntry *layout_entries,
     uint32_t *entry_count)
 {
-    (void)effect;
+    (void)kind;
     (void)effect_impl;
     (void)layout_entries;
     (void)entry_count;
@@ -406,7 +403,7 @@ static bool flecsEngine_autoExposure_render(
     const FlecsRenderViewImpl *view_impl,
     WGPUCommandEncoder encoder,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUTextureView input_view,
     WGPUTextureFormat input_format,
@@ -433,7 +430,7 @@ static bool flecsEngine_autoExposure_render(
         return flecsEngine_renderEffect_render(
             world, engine, view_impl, encoder,
             output_view, output_load_op, (WGPUColor){0},
-            effect_entity, effect, effect_impl,
+            effect_entity, kind, effect_impl,
             input_view, output_format, ts_name, NULL);
     }
 
@@ -513,28 +510,21 @@ static bool flecsEngine_autoExposure_render(
     return flecsEngine_renderEffect_render(
         world, engine, view_impl, encoder,
         output_view, output_load_op, (WGPUColor){0},
-        effect_entity, effect, effect_impl,
+        effect_entity, kind, effect_impl,
         input_view, output_format, NULL, NULL);
 }
 
-ecs_entity_t flecsEngine_createEffect_autoExposure(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsAutoExposure *settings)
+static void FlecsAutoExposure_on_set(
+    ecs_iter_t *it)
 {
-    ecs_entity_t effect = ecs_entity(world, { .parent = parent, .name = name });
-    ecs_set_ptr(world, effect, FlecsAutoExposure, settings);
-
-    ecs_set(world, effect, FlecsRenderEffect, {
-        .shader = flecsEngine_autoExposure_shader(world),
-        .input = input,
-        .setup_callback = flecsEngine_autoExposure_setup,
-        .render_callback = flecsEngine_autoExposure_render
-    });
-
-    return effect;
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_entity_t e = it->entities[i];
+        ecs_set(it->world, e, FlecsRenderEffectKind, {
+            .shader = flecsEngine_autoExposure_shader(it->world),
+            .setup_callback = flecsEngine_autoExposure_setup,
+            .render_callback = flecsEngine_autoExposure_render
+        });
+    }
 }
 
 WGPUBuffer flecsEngine_autoExposure_getBuffer(
@@ -552,6 +542,10 @@ void flecsEngine_autoExposure_register(
 {
     ECS_COMPONENT_DEFINE(world, FlecsAutoExposure);
     ECS_COMPONENT_DEFINE(world, FlecsAutoExposureImpl);
+
+    ecs_set_hooks(world, FlecsAutoExposure, {
+        .ctor = ecs_ctor(FlecsAutoExposure)
+    });
 
     ecs_set_hooks(world, FlecsAutoExposureImpl, {
         .ctor = flecs_default_ctor,
@@ -571,5 +565,11 @@ void flecsEngine_autoExposure_register(
             { .name = "low_percentile", .type = ecs_id(ecs_f32_t) },
             { .name = "high_percentile", .type = ecs_id(ecs_f32_t) }
         }
+    });
+
+    ecs_observer(world, {
+        .query.terms = {{ .id = ecs_id(FlecsAutoExposure) }},
+        .events = { EcsOnSet },
+        .callback = FlecsAutoExposure_on_set
     });
 }

@@ -17,8 +17,6 @@ ECS_STRUCT(FlecsStars, {
 
 extern ECS_COMPONENT_DECLARE(FlecsStars);
 
-FlecsStars flecsEngine_starsSettingsDefault(void);
-
 void FlecsEngineStarsImport(
     ecs_world_t *world);
 

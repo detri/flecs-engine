@@ -2,6 +2,7 @@
 #include "tony_mc_mapface_lut.h"
 #include "flecs_engine.h"
 
+ECS_COMPONENT_DECLARE(FlecsTony);
 ECS_COMPONENT_DECLARE(FlecsTonyImpl);
 
 static const char *kShaderSource =
@@ -64,21 +65,20 @@ static bool flecsEngine_tony_setup(
     const ecs_world_t *world,
     const FlecsEngineImpl *engine,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupLayoutEntry *layout_entries,
     uint32_t *entry_count)
 {
     (void)effect_impl;
-    (void)effect;
+    (void)kind;
 
     ecs_assert(layout_entries != NULL, ECS_INVALID_PARAMETER, NULL);
     ecs_assert(entry_count != NULL, ECS_INVALID_PARAMETER, NULL);
     ecs_assert(*entry_count == 2, ECS_INVALID_PARAMETER, NULL);
 
-    FlecsTonyImpl *existing = ecs_get_mut(
-        (ecs_world_t*)world, effect_entity, FlecsTonyImpl);
-    ecs_entity_t auto_exposure = existing ? existing->auto_exposure : 0;
+    const FlecsTony *settings = ecs_get(world, effect_entity, FlecsTony);
+    ecs_entity_t auto_exposure = settings ? settings->auto_exposure : 0;
 
     FlecsTonyImpl tony = {0};
     tony.auto_exposure = auto_exposure;
@@ -205,14 +205,14 @@ static bool flecsEngine_tony_bind(
     const FlecsEngineImpl *engine,
     const FlecsRenderViewImpl *view_impl,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     const FlecsRenderEffectImpl *impl,
     WGPUBindGroupEntry *entries,
     uint32_t *entry_count)
 {
     (void)engine;
     (void)view_impl;
-    (void)effect;
+    (void)kind;
     (void)impl;
 
     ecs_assert(entries != NULL, ECS_INVALID_PARAMETER, NULL);
@@ -256,35 +256,41 @@ static bool flecsEngine_tony_bind(
     return true;
 }
 
-ecs_entity_t flecsEngine_createEffect_tonyMcMapFace(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    ecs_entity_t auto_exposure)
+static void FlecsTony_on_set(
+    ecs_iter_t *it)
 {
-    ecs_entity_t effect = ecs_entity(world, { .parent = parent, .name = name });
-
-    ecs_set(world, effect, FlecsTonyImpl, { .auto_exposure = auto_exposure });
-
-    ecs_set(world, effect, FlecsRenderEffect, {
-        .shader = flecsEngine_tony_shader(world),
-        .input = input,
-        .setup_callback = flecsEngine_tony_setup,
-        .bind_callback = flecsEngine_tony_bind
-    });
-
-    return effect;
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_entity_t e = it->entities[i];
+        ecs_set(it->world, e, FlecsRenderEffectKind, {
+            .shader = flecsEngine_tony_shader(it->world),
+            .setup_callback = flecsEngine_tony_setup,
+            .bind_callback = flecsEngine_tony_bind
+        });
+    }
 }
 
 void flecsEngine_tonyMcMapFace_register(
     ecs_world_t *world)
 {
+    ECS_COMPONENT_DEFINE(world, FlecsTony);
     ECS_COMPONENT_DEFINE(world, FlecsTonyImpl);
 
     ecs_set_hooks(world, FlecsTonyImpl, {
         .ctor = flecs_default_ctor,
         .move = ecs_move(FlecsTonyImpl),
         .dtor = ecs_dtor(FlecsTonyImpl)
+    });
+
+    ecs_struct(world, {
+        .entity = ecs_id(FlecsTony),
+        .members = {
+            { .name = "auto_exposure", .type = ecs_id(ecs_entity_t) }
+        }
+    });
+
+    ecs_observer(world, {
+        .query.terms = {{ .id = ecs_id(FlecsTony) }},
+        .events = { EcsOnSet },
+        .callback = FlecsTony_on_set
     });
 }

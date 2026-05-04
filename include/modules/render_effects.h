@@ -65,68 +65,22 @@ ECS_STRUCT(FlecsAutoExposure, {
 
 extern ECS_COMPONENT_DECLARE(FlecsAutoExposure);
 
-FlecsAutoExposure flecsEngine_autoExposureSettingsDefault(void);
+ECS_STRUCT(FlecsTony, {
+    ecs_entity_t auto_exposure;
+});
 
-ecs_entity_t flecsEngine_createEffect_autoExposure(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsAutoExposure *settings);
+extern ECS_COMPONENT_DECLARE(FlecsTony);
 
-ecs_entity_t flecsEngine_createEffect_tonyMcMapFace(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    ecs_entity_t auto_exposure);
+typedef struct {
+    char _dummy;
+} FlecsInvert;
 
-ecs_entity_t flecsEngine_createEffect_invert(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input);
+extern ECS_COMPONENT_DECLARE(FlecsInvert);
 
-FlecsBloom flecsEngine_bloomSettingsDefault(void);
+typedef struct {
+    char _dummy;
+} FlecsGammaCorrect;
 
-ecs_entity_t flecsEngine_createEffect_bloom(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsBloom *settings);
-
-FlecsHeightFog flecsEngine_heightFogSettingsDefault(void);
-
-ecs_entity_t flecsEngine_createEffect_heightFog(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsHeightFog *settings);
-
-FlecsSSAO flecsEngine_ssaoSettingsDefault(void);
-
-ecs_entity_t flecsEngine_createEffect_ssao(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsSSAO *settings);
-
-FlecsSunShafts flecsEngine_sunShaftsSettingsDefault(void);
-
-ecs_entity_t flecsEngine_createEffect_sunShafts(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsSunShafts *settings);
-
-ecs_entity_t flecsEngine_createEffect_gammaCorrect(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input);
+extern ECS_COMPONENT_DECLARE(FlecsGammaCorrect);
 
 #endif

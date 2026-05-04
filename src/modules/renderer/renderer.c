@@ -10,7 +10,6 @@
 #define FLECS_ENGINE_RENDERER_IMPL_IMPL
 #include "flecs_engine.h"
 
-extern ECS_COMPONENT_DECLARE(FlecsRenderEffect);
 ECS_COMPONENT_DECLARE(FlecsGpuVertex);
 ECS_COMPONENT_DECLARE(FlecsGpuVertexLitUv);
 ECS_COMPONENT_DECLARE(FlecsGpuTransform);
@@ -533,6 +532,8 @@ void FlecsEngineRendererImport(
     flecsEngine_sunShafts_register(world);
     flecsEngine_clouds_register(world);
     flecsEngine_autoExposure_register(world);
+    flecsEngine_invert_register(world);
+    flecsEngine_gammaCorrect_register(world);
 
     /* Register FlecsTextureImpl (renderer-side companion for FlecsTexture) */
     ECS_COMPONENT_DEFINE(world, FlecsTextureImpl);

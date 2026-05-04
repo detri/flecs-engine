@@ -208,11 +208,13 @@ void initEngine(
   // Atmosphere: sky, aerial perspective, and (phase 4) IBL
   view.atmosphere = ecs_entity(world, {
     .parent = view_entity, .name = "atmosphere" });
-  FlecsAtmosphere atmosphere_settings = flecsEngine_atmosphereSettingsDefault();
-  atmosphere_settings.sun = sun;
-  atmosphere_settings.moon = moon;
-  atmosphere_settings.stars = stars;
-  ecs_set_ptr(world, view.atmosphere, FlecsAtmosphere, &atmosphere_settings);
+  {
+    FlecsAtmosphere *atm = ecs_ensure(world, view.atmosphere, FlecsAtmosphere);
+    atm->sun = sun;
+    atm->moon = moon;
+    atm->stars = stars;
+    ecs_modified(world, view.atmosphere, FlecsAtmosphere);
+  }
 
   // RenderBatches (what to render in scene)
   ecs_entity_t geometry = ecs_entity(world, {
@@ -226,58 +228,80 @@ void initEngine(
   ecs_vec_append_t(NULL, &batch_set.batches, ecs_entity_t)[0] = skybox;
 
   // Post process effects
-  FlecsSSAO ssao_settings = flecsEngine_ssaoSettingsDefault();
-  ssao_settings.radius = 0.5;
-  FlecsBloom bloom_settings = flecsEngine_bloomSettingsDefault();
-  FlecsHeightFog fog_settings =
-    flecsEngine_heightFogSettingsDefault();
-  fog_settings.density = 0;
-  FlecsAutoExposure auto_exposure_settings =
-    flecsEngine_autoExposureSettingsDefault();
-  auto_exposure_settings.min_log_luma = -16;
-  auto_exposure_settings.low_percentile = 0;
-  auto_exposure_settings.min_brightness = 0.01;
-  auto_exposure_settings.max_brightness = 0.3;
+  ecs_entity_t ssao_eff = ecs_entity(world, {
+    .parent = view_entity, .name = "ssao" });
+  {
+    FlecsSSAO *ssao = ecs_ensure(world, ssao_eff, FlecsSSAO);
+    ssao->radius = 0.5;
+    ecs_modified(world, ssao_eff, FlecsSSAO);
+  }
+  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
+    (flecs_render_view_effect_t){ .enabled = true, .effect = ssao_eff };
 
+  ecs_entity_t fog_eff = ecs_entity(world, {
+    .parent = view_entity, .name = "heightFog" });
+  {
+    FlecsHeightFog *fog = ecs_ensure(world, fog_eff, FlecsHeightFog);
+    fog->density = 0;
+    ecs_modified(world, fog_eff, FlecsHeightFog);
+  }
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
-    (flecs_render_view_effect_t){ .enabled = true, .effect =
-      flecsEngine_createEffect_ssao(world, view_entity,
-        "ssao", 0, &ssao_settings) };
-  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
-    (flecs_render_view_effect_t){ .enabled = false, .effect =
-      flecsEngine_createEffect_heightFog(world, view_entity,
-        "heightFog", 1, &fog_settings) };
-  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
-    (flecs_render_view_effect_t){ .enabled = false, .effect =
-      flecsEngine_createEffect_sunShafts(world, view_entity,
-        "sunShafts", 2, NULL) };
-  FlecsClouds clouds_settings = flecsEngine_cloudsSettingsDefault();
-  clouds_settings.appearance.atmosphere = view.atmosphere;
-  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
-    (flecs_render_view_effect_t){ .enabled = false, .effect =
-      flecsEngine_createEffect_clouds(world, view_entity,
-        "clouds", 3, &clouds_settings) };
-  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
-    (flecs_render_view_effect_t){ .enabled = true, .effect =
-      flecsEngine_createEffect_bloom(world, view_entity,
-        "bloom", 4, &bloom_settings) };
-  ecs_entity_t auto_exposure_effect = flecsEngine_createEffect_autoExposure(
-    world, view_entity, "autoExposure", 5, &auto_exposure_settings);
-  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
-    (flecs_render_view_effect_t){ .enabled = true,
-      .effect = auto_exposure_effect };
-  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
-    (flecs_render_view_effect_t){ .enabled = true, .effect =
-      flecsEngine_createEffect_tonyMcMapFace(world, view_entity,
-        "tonyMcMapFace", 6, auto_exposure_effect) };
+    (flecs_render_view_effect_t){ .enabled = false, .effect = fog_eff };
 
+  ecs_entity_t shafts_eff = ecs_entity(world, {
+    .parent = view_entity, .name = "sunShafts" });
+  ecs_ensure(world, shafts_eff, FlecsSunShafts);
+  ecs_modified(world, shafts_eff, FlecsSunShafts);
+  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
+    (flecs_render_view_effect_t){ .enabled = false, .effect = shafts_eff };
+
+  ecs_entity_t clouds_eff = ecs_entity(world, {
+    .parent = view_entity, .name = "clouds" });
+  {
+    FlecsClouds *clouds = ecs_ensure(world, clouds_eff, FlecsClouds);
+    clouds->appearance.atmosphere = view.atmosphere;
+    ecs_modified(world, clouds_eff, FlecsClouds);
+  }
+  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
+    (flecs_render_view_effect_t){ .enabled = false, .effect = clouds_eff };
+
+  ecs_entity_t bloom_eff = ecs_entity(world, {
+    .parent = view_entity, .name = "bloom" });
+  ecs_ensure(world, bloom_eff, FlecsBloom);
+  ecs_modified(world, bloom_eff, FlecsBloom);
+  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
+    (flecs_render_view_effect_t){ .enabled = true, .effect = bloom_eff };
+
+  ecs_entity_t auto_exposure_effect = ecs_entity(world, {
+    .parent = view_entity, .name = "autoExposure" });
+  {
+    FlecsAutoExposure *ae = ecs_ensure(world, auto_exposure_effect,
+      FlecsAutoExposure);
+    ae->min_log_luma = -16;
+    ae->low_percentile = 0;
+    ae->min_brightness = 0.01;
+    ae->max_brightness = 0.3;
+    ecs_modified(world, auto_exposure_effect, FlecsAutoExposure);
+  }
+  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
+    (flecs_render_view_effect_t){
+      .enabled = true, .effect = auto_exposure_effect };
+
+  ecs_entity_t tony_eff = ecs_entity(world, {
+    .parent = view_entity, .name = "tonyMcMapFace" });
+  ecs_set(world, tony_eff, FlecsTony, { .auto_exposure = auto_exposure_effect });
+  *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
+    (flecs_render_view_effect_t){ .enabled = true, .effect = tony_eff };
+
+  ecs_entity_t gamma_eff = ecs_entity(world, {
+    .parent = view_entity, .name = "gammaCorrect" });
+  ecs_add(world, gamma_eff, FlecsGammaCorrect);
   *ecs_vec_append_t(NULL, &view.effects, flecs_render_view_effect_t) =
     (flecs_render_view_effect_t){
 #ifdef __EMSCRIPTEN__
       .enabled = true,
 #endif
-      .effect = flecsEngine_createEffect_gammaCorrect(world, view_entity,
-        "gammaCorrect", 7) };
+      .effect = gamma_eff };
 
   ecs_set_ptr(world, view_entity, FlecsRenderView, &view);
   ecs_set_ptr(world, view_entity, FlecsRenderBatchSet, &batch_set);

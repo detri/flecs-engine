@@ -1,6 +1,8 @@
 #include "../../renderer.h"
 #include "flecs_engine.h"
 
+ECS_COMPONENT_DECLARE(FlecsInvert);
+
 static const char *kShaderSource =
     FLECS_ENGINE_FULLSCREEN_VS_WGSL
     "@group(0) @binding(0) var input_texture : texture_2d<f32>;\n"
@@ -21,17 +23,25 @@ static ecs_entity_t flecsEngine_invert_shader(
         });
 }
 
-ecs_entity_t flecsEngine_createEffect_invert(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input)
+static void FlecsInvert_on_set(
+    ecs_iter_t *it)
 {
-    ecs_entity_t effect = ecs_entity(world, { .parent = parent, .name = name });
-    ecs_set(world, effect, FlecsRenderEffect, {
-        .shader = flecsEngine_invert_shader(world),
-        .input = input
-    });
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_entity_t e = it->entities[i];
+        ecs_set(it->world, e, FlecsRenderEffectKind, {
+            .shader = flecsEngine_invert_shader(it->world)
+        });
+    }
+}
 
-    return effect;
+void flecsEngine_invert_register(
+    ecs_world_t *world)
+{
+    ECS_COMPONENT_DEFINE(world, FlecsInvert);
+
+    ecs_observer(world, {
+        .query.terms = {{ .id = ecs_id(FlecsInvert) }},
+        .events = { EcsOnAdd },
+        .callback = FlecsInvert_on_set
+    });
 }

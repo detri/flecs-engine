@@ -229,12 +229,12 @@ static bool flecsEngine_ssao_setup(
     const ecs_world_t *world,
     const FlecsEngineImpl *engine,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupLayoutEntry *layout_entries,
     uint32_t *entry_count)
 {
-    (void)effect;
+    (void)kind;
     (void)effect_impl;
 
     ecs_assert(layout_entries != NULL, ECS_INVALID_PARAMETER, NULL);
@@ -280,12 +280,12 @@ static bool flecsEngine_ssao_bind(
     const FlecsEngineImpl *engine,
     const FlecsRenderViewImpl *view_impl,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     const FlecsRenderEffectImpl *impl,
     WGPUBindGroupEntry *entries,
     uint32_t *entry_count)
 {
-    (void)effect;
+    (void)kind;
     (void)impl;
 
     ecs_assert(entries != NULL, ECS_INVALID_PARAMETER, NULL);
@@ -329,37 +329,23 @@ static bool flecsEngine_ssao_bind(
 }
 
 
-FlecsSSAO flecsEngine_ssaoSettingsDefault(void)
+ECS_CTOR(FlecsSSAO, ptr, {
+    ptr->radius = 0.5f;
+    ptr->bias = 0.025f;
+    ptr->intensity = 1.0f;
+})
+
+static void FlecsSSAO_on_set(
+    ecs_iter_t *it)
 {
-    return (FlecsSSAO){
-        .radius = 0.5f,
-        .bias = 0.025f,
-        .intensity = 1.0f
-    };
-}
-
-ecs_entity_t flecsEngine_createEffect_ssao(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsSSAO *settings)
-{
-    ecs_entity_t effect = ecs_entity(world, { .parent = parent, .name = name });
-
-    FlecsSSAO ssao = settings
-        ? *settings
-        : flecsEngine_ssaoSettingsDefault();
-
-    ecs_set_ptr(world, effect, FlecsSSAO, &ssao);
-    ecs_set(world, effect, FlecsRenderEffect, {
-        .shader = flecsEngine_ssao_shader(world),
-        .input = input,
-        .setup_callback = flecsEngine_ssao_setup,
-        .bind_callback = flecsEngine_ssao_bind
-    });
-
-    return effect;
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_entity_t e = it->entities[i];
+        ecs_set(it->world, e, FlecsRenderEffectKind, {
+            .shader = flecsEngine_ssao_shader(it->world),
+            .setup_callback = flecsEngine_ssao_setup,
+            .bind_callback = flecsEngine_ssao_bind
+        });
+    }
 }
 
 void flecsEngine_ssao_register(
@@ -367,6 +353,10 @@ void flecsEngine_ssao_register(
 {
     ECS_COMPONENT_DEFINE(world, FlecsSSAO);
     ECS_COMPONENT_DEFINE(world, FlecsSSAOImpl);
+
+    ecs_set_hooks(world, FlecsSSAO, {
+        .ctor = ecs_ctor(FlecsSSAO)
+    });
 
     ecs_set_hooks(world, FlecsSSAOImpl, {
         .ctor = flecs_default_ctor,
@@ -381,5 +371,11 @@ void flecsEngine_ssao_register(
             { .name = "bias", .type = ecs_id(ecs_f32_t) },
             { .name = "intensity", .type = ecs_id(ecs_f32_t) }
         }
+    });
+
+    ecs_observer(world, {
+        .query.terms = {{ .id = ecs_id(FlecsSSAO) }},
+        .events = { EcsOnSet },
+        .callback = FlecsSSAO_on_set
     });
 }

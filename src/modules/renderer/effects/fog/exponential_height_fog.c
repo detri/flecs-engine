@@ -201,12 +201,12 @@ static bool flecsEngine_heightFog_setup(
     const ecs_world_t *world,
     const FlecsEngineImpl *engine,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupLayoutEntry *layout_entries,
     uint32_t *entry_count)
 {
-    (void)effect;
+    (void)kind;
     (void)effect_impl;
 
     ecs_assert(layout_entries != NULL, ECS_INVALID_PARAMETER, NULL);
@@ -284,12 +284,12 @@ static bool flecsEngine_heightFog_bind(
     const FlecsEngineImpl *engine,
     const FlecsRenderViewImpl *view_impl,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     const FlecsRenderEffectImpl *impl,
     WGPUBindGroupEntry *entries,
     uint32_t *entry_count)
 {
-    (void)effect;
+    (void)kind;
     (void)impl;
 
     ecs_assert(entries != NULL, ECS_INVALID_PARAMETER, NULL);
@@ -349,40 +349,26 @@ static bool flecsEngine_heightFog_bind(
     return true;
 }
 
-FlecsHeightFog flecsEngine_heightFogSettingsDefault(void)
+ECS_CTOR(FlecsHeightFog, ptr, {
+    ptr->density = 0.1f;
+    ptr->falloff = 0.3f;
+    ptr->base_height = 0.0f;
+    ptr->max_opacity = 1.0f;
+    ptr->color = (flecs_rgba_t){191, 158, 140, 255};
+    ptr->atmosphere = 0;
+})
+
+static void FlecsHeightFog_on_set(
+    ecs_iter_t *it)
 {
-    return (FlecsHeightFog){
-        .density = 0.1f,
-        .falloff = 0.3f,
-        .base_height = 0.0f,
-        .max_opacity = 1.0f,
-        .color = {191, 158, 140, 255},
-        .atmosphere = 0
-    };
-}
-
-ecs_entity_t flecsEngine_createEffect_heightFog(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsHeightFog *settings)
-{
-    ecs_entity_t effect = ecs_entity(world, { .parent = parent, .name = name });
-
-    FlecsHeightFog fog = settings
-        ? *settings
-        : flecsEngine_heightFogSettingsDefault();
-
-    ecs_set_ptr(world, effect, FlecsHeightFog, &fog);
-    ecs_set(world, effect, FlecsRenderEffect, {
-        .shader = flecsEngine_heightFog_shader(world),
-        .input = input,
-        .setup_callback = flecsEngine_heightFog_setup,
-        .bind_callback = flecsEngine_heightFog_bind
-    });
-
-    return effect;
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_entity_t e = it->entities[i];
+        ecs_set(it->world, e, FlecsRenderEffectKind, {
+            .shader = flecsEngine_heightFog_shader(it->world),
+            .setup_callback = flecsEngine_heightFog_setup,
+            .bind_callback = flecsEngine_heightFog_bind
+        });
+    }
 }
 
 void flecsEngine_heightFog_register(
@@ -390,6 +376,10 @@ void flecsEngine_heightFog_register(
 {
     ECS_COMPONENT_DEFINE(world, FlecsHeightFog);
     ECS_COMPONENT_DEFINE(world, FlecsHeightFogImpl);
+
+    ecs_set_hooks(world, FlecsHeightFog, {
+        .ctor = ecs_ctor(FlecsHeightFog)
+    });
 
     ecs_set_hooks(world, FlecsHeightFogImpl, {
         .ctor = flecs_default_ctor,
@@ -407,5 +397,11 @@ void flecsEngine_heightFog_register(
             { .name = "color", .type = ecs_id(flecs_rgba_t) },
             { .name = "atmosphere", .type = ecs_id(ecs_entity_t) }
         }
+    });
+
+    ecs_observer(world, {
+        .query.terms = {{ .id = ecs_id(FlecsHeightFog) }},
+        .events = { EcsOnSet },
+        .callback = FlecsHeightFog_on_set
     });
 }

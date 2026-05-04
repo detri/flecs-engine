@@ -175,12 +175,12 @@ static bool flecsEngine_sunShafts_setup(
     const ecs_world_t *world,
     const FlecsEngineImpl *engine,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupLayoutEntry *layout_entries,
     uint32_t *entry_count)
 {
-    (void)effect;
+    (void)kind;
     (void)effect_impl;
 
     ecs_assert(layout_entries != NULL, ECS_INVALID_PARAMETER, NULL);
@@ -225,12 +225,12 @@ static bool flecsEngine_sunShafts_bind(
     const FlecsEngineImpl *engine,
     const FlecsRenderViewImpl *view_impl,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     const FlecsRenderEffectImpl *impl,
     WGPUBindGroupEntry *entries,
     uint32_t *entry_count)
 {
-    (void)effect;
+    (void)kind;
     (void)impl;
 
     ecs_assert(entries != NULL, ECS_INVALID_PARAMETER, NULL);
@@ -277,40 +277,27 @@ static bool flecsEngine_sunShafts_bind(
     return true;
 }
 
-FlecsSunShafts flecsEngine_sunShaftsSettingsDefault(void)
+ECS_CTOR(FlecsSunShafts, ptr, {
+    ptr->intensity = 1.0f;
+    ptr->density = 0.9f;
+    ptr->weight = 0.04f;
+    ptr->decay = 0.97f;
+    ptr->exposure = 0.25f;
+    ptr->color = (flecs_rgba_t){255, 240, 210, 255};
+    ptr->light = 0;
+})
+
+static void FlecsSunShafts_on_set(
+    ecs_iter_t *it)
 {
-    return (FlecsSunShafts){
-        .intensity = 1.0f,
-        .density = 0.9f,
-        .weight = 0.04f,
-        .decay = 0.97f,
-        .exposure = 0.25f,
-        .color = {255, 240, 210, 255}
-    };
-}
-
-ecs_entity_t flecsEngine_createEffect_sunShafts(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsSunShafts *settings)
-{
-    ecs_entity_t effect = ecs_entity(world, { .parent = parent, .name = name });
-
-    FlecsSunShafts shafts = settings
-        ? *settings
-        : flecsEngine_sunShaftsSettingsDefault();
-
-    ecs_set_ptr(world, effect, FlecsSunShafts, &shafts);
-    ecs_set(world, effect, FlecsRenderEffect, {
-        .shader = flecsEngine_sunShafts_shader(world),
-        .input = input,
-        .setup_callback = flecsEngine_sunShafts_setup,
-        .bind_callback = flecsEngine_sunShafts_bind
-    });
-
-    return effect;
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_entity_t e = it->entities[i];
+        ecs_set(it->world, e, FlecsRenderEffectKind, {
+            .shader = flecsEngine_sunShafts_shader(it->world),
+            .setup_callback = flecsEngine_sunShafts_setup,
+            .bind_callback = flecsEngine_sunShafts_bind
+        });
+    }
 }
 
 void flecsEngine_sunShafts_register(
@@ -318,6 +305,10 @@ void flecsEngine_sunShafts_register(
 {
     ECS_COMPONENT_DEFINE(world, FlecsSunShafts);
     ECS_COMPONENT_DEFINE(world, FlecsSunShaftsImpl);
+
+    ecs_set_hooks(world, FlecsSunShafts, {
+        .ctor = ecs_ctor(FlecsSunShafts)
+    });
 
     ecs_set_hooks(world, FlecsSunShaftsImpl, {
         .ctor = flecs_default_ctor,
@@ -336,5 +327,11 @@ void flecsEngine_sunShafts_register(
             { .name = "color", .type = ecs_id(flecs_rgba_t) },
             { .name = "light", .type = ecs_id(ecs_entity_t) }
         }
+    });
+
+    ecs_observer(world, {
+        .query.terms = {{ .id = ecs_id(FlecsSunShafts) }},
+        .events = { EcsOnSet },
+        .callback = FlecsSunShafts_on_set
     });
 }

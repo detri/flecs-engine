@@ -46,15 +46,6 @@ ECS_STRUCT(FlecsClouds, {
 
 extern ECS_COMPONENT_DECLARE(FlecsClouds);
 
-FlecsClouds flecsEngine_cloudsSettingsDefault(void);
-
-ecs_entity_t flecsEngine_createEffect_clouds(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsClouds *settings);
-
 void flecsEngine_clouds_register(
     ecs_world_t *world);
 

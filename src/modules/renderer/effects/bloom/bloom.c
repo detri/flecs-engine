@@ -136,20 +136,15 @@ static const char *kBloomShaderSource =
     "  return vec4<f32>(scene + bloom * uniforms.final_blend, 1.0);\n"
     "}\n";
 
-FlecsBloom flecsEngine_bloomSettingsDefault(void)
-{
-    return (FlecsBloom){
-        .intensity = 0.3f,
-        .low_frequency_boost = 0.7f,
-        .low_frequency_boost_curvature = 0.95f,
-        .high_pass_frequency = 1.0f,
-        .prefilter = {
-            .threshold = 1.0f,
-            .threshold_softness = 0.0f
-        },
-        .max_mip_dimension = FLECS_ENGINE_BLOOM_DEFAULT_MAX_MIP_DIMENSION
-    };
-}
+ECS_CTOR(FlecsBloom, ptr, {
+    ptr->intensity = 0.3f;
+    ptr->low_frequency_boost = 0.7f;
+    ptr->low_frequency_boost_curvature = 0.95f;
+    ptr->high_pass_frequency = 1.0f;
+    ptr->prefilter.threshold = 1.0f;
+    ptr->prefilter.threshold_softness = 0.0f;
+    ptr->max_mip_dimension = FLECS_ENGINE_BLOOM_DEFAULT_MAX_MIP_DIMENSION;
+})
 
 static uint32_t flecsEngine_bloom_deriveMipCount(
     uint32_t width,
@@ -632,7 +627,7 @@ static bool flecsEngine_bloom_setup(
     const ecs_world_t *world,
     const FlecsEngineImpl *engine,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUBindGroupLayoutEntry *layout_entries,
     uint32_t *entry_count)
@@ -640,7 +635,7 @@ static bool flecsEngine_bloom_setup(
     (void)effect_impl;
     (void)layout_entries;
 
-    ecs_assert(effect != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_assert(kind != NULL, ECS_INVALID_PARAMETER, NULL);
     ecs_assert(entry_count != NULL, ECS_INVALID_PARAMETER, NULL);
     ecs_assert(*entry_count == 2, ECS_INVALID_PARAMETER, NULL);
 
@@ -782,7 +777,7 @@ static bool flecsEngine_bloom_renderPassthrough(
     FlecsEngineImpl *engine,
     const FlecsRenderViewImpl *view_impl,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUCommandEncoder encoder,
     WGPUTextureView input_view,
@@ -794,7 +789,7 @@ static bool flecsEngine_bloom_renderPassthrough(
     return flecsEngine_renderEffect_render(
         world, engine, view_impl, encoder,
         output_view, output_load_op, (WGPUColor){0},
-        effect_entity, effect, effect_impl,
+        effect_entity, kind, effect_impl,
         input_view, output_format, ts_name, NULL);
 }
 
@@ -804,7 +799,7 @@ static bool flecsEngine_bloom_render(
     const FlecsRenderViewImpl *view_impl,
     WGPUCommandEncoder encoder,
     ecs_entity_t effect_entity,
-    const FlecsRenderEffect *effect,
+    const FlecsRenderEffectKind *kind,
     FlecsRenderEffectImpl *effect_impl,
     WGPUTextureView input_view,
     WGPUTextureFormat input_format,
@@ -824,7 +819,7 @@ static bool flecsEngine_bloom_render(
 
     if (bloom->intensity <= 0.0f) {
         return flecsEngine_bloom_renderPassthrough(
-            world, engine, view_impl, effect_entity, effect, effect_impl,
+            world, engine, view_impl, effect_entity, kind, effect_impl,
             encoder, input_view, output_view, output_format, output_load_op,
             ts_name);
     }
@@ -925,24 +920,17 @@ static bool flecsEngine_bloom_render(
         ts_end);
 }
 
-ecs_entity_t flecsEngine_createEffect_bloom(
-    ecs_world_t *world,
-    ecs_entity_t parent,
-    const char *name,
-    int32_t input,
-    const FlecsBloom *settings)
+static void FlecsBloom_on_set(
+    ecs_iter_t *it)
 {
-    ecs_entity_t effect = ecs_entity(world, { .parent = parent, .name = name });
-    ecs_set_ptr(world, effect, FlecsBloom, settings);
-
-    ecs_set(world, effect, FlecsRenderEffect, {
-        .shader = flecsEngine_bloom_shader(world),
-        .input = input,
-        .setup_callback = flecsEngine_bloom_setup,
-        .render_callback = flecsEngine_bloom_render
-    });
-
-    return effect;
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_entity_t e = it->entities[i];
+        ecs_set(it->world, e, FlecsRenderEffectKind, {
+            .shader = flecsEngine_bloom_shader(it->world),
+            .setup_callback = flecsEngine_bloom_setup,
+            .render_callback = flecsEngine_bloom_render
+        });
+    }
 }
 
 void flecsEngine_bloom_register(
@@ -950,6 +938,10 @@ void flecsEngine_bloom_register(
 {
     ECS_COMPONENT_DEFINE(world, FlecsBloom);
     ECS_COMPONENT_DEFINE(world, FlecsBloomImpl);
+
+    ecs_set_hooks(world, FlecsBloom, {
+        .ctor = ecs_ctor(FlecsBloom)
+    });
 
     ecs_set_hooks(world, FlecsBloomImpl, {
         .ctor = flecs_default_ctor,
@@ -975,5 +967,11 @@ void flecsEngine_bloom_register(
             { .name = "prefilter", .type = bloom_prefilter_t },
             { .name = "max_mip_dimension", .type = ecs_id(ecs_u32_t) }
         }
+    });
+
+    ecs_observer(world, {
+        .query.terms = {{ .id = ecs_id(FlecsBloom) }},
+        .events = { EcsOnSet },
+        .callback = FlecsBloom_on_set
     });
 }

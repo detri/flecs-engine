@@ -773,9 +773,8 @@ ECS_MOVE(FlecsAtmosphereImpl, dst, src, {
     ecs_os_zeromem(src);
 })
 
-FlecsAtmosphere flecsEngine_atmosphereSettingsDefault(void)
-{
-    return (FlecsAtmosphere){
+ECS_CTOR(FlecsAtmosphere, ptr, {
+    *ptr = (FlecsAtmosphere){
         .sun_disk_intensity = 1.0f,
         .sun_disk_angular_radius = 0.00465f,
         .aerial_perspective_distance_km = 32.0f,
@@ -805,7 +804,7 @@ FlecsAtmosphere flecsEngine_atmosphereSettingsDefault(void)
         .turbulence_scale = 40.0f,
         .turbulence_speed = 1.0f
     };
-}
+})
 
 static void flecsEngine_atmos_fillUniform(
     const ecs_world_t *world,
@@ -1877,6 +1876,10 @@ void FlecsEngineAtmosphereImport(ecs_world_t *world)
 
     ECS_COMPONENT_DEFINE(world, FlecsAtmosphere);
     ECS_COMPONENT_DEFINE(world, FlecsAtmosphereImpl);
+
+    ecs_set_hooks(world, FlecsAtmosphere, {
+        .ctor = ecs_ctor(FlecsAtmosphere)
+    });
 
     ecs_set_hooks(world, FlecsAtmosphereImpl, {
         .ctor = flecs_default_ctor,
