@@ -87,6 +87,7 @@ static void FlecsIbl_on_set(
         flecsEngine_ibl_releaseRuntimeResources(ibl_impl);
 
         if (!flecsEngine_ibl_initResources(
+            it->world,
             engine,
             ibl_impl,
             hdri[i].file,

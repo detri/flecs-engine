@@ -342,8 +342,8 @@ static void FlecsRenderEffect_on_set(
             continue;
         }
 
-        const FlecsShaderImpl *shader_impl = ecs_get(
-            world, effects[i].shader, FlecsShaderImpl);
+        const FlecsShaderImpl *shader_impl = flecsEngine_shader_ensureImpl(
+            (ecs_world_t*)world, effects[i].shader);
         if (!shader_impl || !shader_impl->shader_module) {
             char *effect_name = ecs_get_path(world, e);
             ecs_err("missing compiled shader for render effect %s", effect_name);

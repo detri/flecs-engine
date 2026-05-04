@@ -13,4 +13,9 @@ const FlecsShaderImpl* flecsEngine_shader_ensureImpl(
     ecs_world_t *world,
     ecs_entity_t shader_entity);
 
+WGPUShaderModule flecsEngine_shader_ensureModule(
+    ecs_world_t *world,
+    const char *name,
+    const char *source);
+
 #endif

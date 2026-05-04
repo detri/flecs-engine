@@ -163,19 +163,19 @@ int flecsEngine_initRenderer(
     impl->fallback_hdri = flecsEngine_createHdri(
         world, 0, "FallbackHdri", NULL, 1014, 64);
 
-    if (flecsEngine_initPassthrough(impl)) {
+    if (flecsEngine_initPassthrough(world, impl)) {
         goto error;
     }
 
-    if (flecsEngine_initDepthResolve(impl)) {
+    if (flecsEngine_initDepthResolve(world, impl)) {
         goto error;
     }
 
-    if (flecsEngine_gpuCull_init(impl)) {
+    if (flecsEngine_gpuCull_init(world, impl)) {
         goto error;
     }
 
-    if (flecsEngine_hiz_init(impl)) {
+    if (flecsEngine_hiz_init(world, impl)) {
         goto error;
     }
 

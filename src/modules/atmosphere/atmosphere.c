@@ -1129,7 +1129,8 @@ static bool flecsEngine_atmos_createAerialTexture(
 }
 
 static WGPUShaderModule flecsEngine_atmos_createModule(
-    const FlecsEngineImpl *engine,
+    ecs_world_t *world,
+    const char *name,
     const char *body)
 {
     size_t common_len = strlen(kAtmosphereCommonWgsl);
@@ -1138,7 +1139,7 @@ static WGPUShaderModule flecsEngine_atmos_createModule(
     memcpy(buf, kAtmosphereCommonWgsl, common_len);
     memcpy(buf + common_len, body, body_len);
     buf[common_len + body_len] = '\0';
-    WGPUShaderModule module = flecsEngine_createShaderModule(engine->device, buf);
+    WGPUShaderModule module = flecsEngine_shader_ensureModule(world, name, buf);
     ecs_os_free(buf);
     return module;
 }
@@ -1333,21 +1334,21 @@ bool flecsEngine_atmosphere_ensureImpl(
         !a.cube_ds_layout || !a.compose_layout)
     { ecs_err("atmos setup failed at %s:%d", __FILE__, __LINE__); flecsEngine_atmos_releaseResources(&a); return false; }
 
-    WGPUShaderModule trans_mod = flecsEngine_atmos_createModule(engine, kTransShaderSource);
-    WGPUShaderModule ms_mod = flecsEngine_atmos_createModule(engine, kMSShaderSource);
-    WGPUShaderModule sv_mod = flecsEngine_atmos_createModule(engine, kSkyViewShaderSource);
-    WGPUShaderModule ap_mod = flecsEngine_atmos_createModule(engine, kAerialComputeShaderSource);
-    WGPUShaderModule cs_mod = flecsEngine_atmos_createModule(engine, kComposeShaderSource);
-    WGPUShaderModule cf_mod = flecsEngine_atmos_createModule(engine, kCubeFaceComputeShaderSource);
-    WGPUShaderModule ds_mod = flecsEngine_atmos_createModule(engine, kCubeDownsampleComputeShaderSource);
+    WGPUShaderModule trans_mod = flecsEngine_atmos_createModule(
+        world, "AtmosphereTransShader", kTransShaderSource);
+    WGPUShaderModule ms_mod = flecsEngine_atmos_createModule(
+        world, "AtmosphereMSShader", kMSShaderSource);
+    WGPUShaderModule sv_mod = flecsEngine_atmos_createModule(
+        world, "AtmosphereSkyViewShader", kSkyViewShaderSource);
+    WGPUShaderModule ap_mod = flecsEngine_atmos_createModule(
+        world, "AtmosphereAerialComputeShader", kAerialComputeShaderSource);
+    WGPUShaderModule cs_mod = flecsEngine_atmos_createModule(
+        world, "AtmosphereComposeShader", kComposeShaderSource);
+    WGPUShaderModule cf_mod = flecsEngine_atmos_createModule(
+        world, "AtmosphereCubeFaceShader", kCubeFaceComputeShaderSource);
+    WGPUShaderModule ds_mod = flecsEngine_atmos_createModule(
+        world, "AtmosphereCubeDsShader", kCubeDownsampleComputeShaderSource);
     if (!trans_mod || !ms_mod || !sv_mod || !ap_mod || !cs_mod || !cf_mod || !ds_mod) {
-        if (trans_mod) wgpuShaderModuleRelease(trans_mod);
-        if (ms_mod) wgpuShaderModuleRelease(ms_mod);
-        if (sv_mod) wgpuShaderModuleRelease(sv_mod);
-        if (ap_mod) wgpuShaderModuleRelease(ap_mod);
-        if (cs_mod) wgpuShaderModuleRelease(cs_mod);
-        if (cf_mod) wgpuShaderModuleRelease(cf_mod);
-        if (ds_mod) wgpuShaderModuleRelease(ds_mod);
         flecsEngine_atmos_releaseResources(&a);
         return false;
     }
@@ -1372,14 +1373,6 @@ bool flecsEngine_atmosphere_ensureImpl(
         engine, cs_mod, a.compose_layout, "vs_main", "fs_main", hdr_format);
     a.compose_pipeline_surface = flecsEngine_atmos_createPipeline(
         engine, cs_mod, a.compose_layout, "vs_main", "fs_main", surface_format);
-
-    wgpuShaderModuleRelease(trans_mod);
-    wgpuShaderModuleRelease(ms_mod);
-    wgpuShaderModuleRelease(sv_mod);
-    wgpuShaderModuleRelease(ap_mod);
-    wgpuShaderModuleRelease(cs_mod);
-    wgpuShaderModuleRelease(cf_mod);
-    wgpuShaderModuleRelease(ds_mod);
 
     if (!a.trans_pipeline || !a.ms_pipeline || !a.skyview_pipeline ||
         !a.compose_pipeline_hdr || !a.compose_pipeline_surface ||

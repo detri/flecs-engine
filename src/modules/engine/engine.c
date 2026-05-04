@@ -90,57 +90,63 @@ int flecsEngine_init(
         height,
         config->resolution_scale);
 
-    FlecsEngineImpl *ptr = ecs_singleton_ensure(world, FlecsEngineImpl);
+    bool was_deferred = ecs_is_deferred(world);
+    if (was_deferred) {
+        ecs_defer_suspend(world);
+    }
 
-    FlecsEngineImpl engine = {
-        .surface = surface_entity,
-        .default_attr_cache = flecsEngine_defaultAttrCache_create()
-    };
+    FlecsEngineImpl *engine = ecs_singleton_ensure(world, FlecsEngineImpl);
+    engine->surface = surface_entity;
+    engine->default_attr_cache = flecsEngine_defaultAttrCache_create();
 
     WGPUInstanceDescriptor instance_desc = {0};
-    engine.instance = wgpuCreateInstance(&instance_desc);
-    if (!engine.instance) {
+    engine->instance = wgpuCreateInstance(&instance_desc);
+    if (!engine->instance) {
         ecs_err("Failed to create wgpu instance\n");
         goto error;
     }
 
-    if (flecsEngine_surfaceInterface_initInstance(&engine, config, impl)) {
+    if (flecsEngine_surfaceInterface_initInstance(engine, config, impl)) {
         goto error;
     }
 
-    engine.adapter = flecsEngine_requestAdapter(
-        engine.instance, impl->wgpu_surface);
-    if (!engine.adapter) {
+    engine->adapter = flecsEngine_requestAdapter(
+        engine->instance, impl->wgpu_surface);
+    if (!engine->adapter) {
         goto error;
     }
 
-    engine.device = flecsEngine_requestDevice(engine.adapter, engine.instance);
-    if (!engine.device) {
+    engine->device = flecsEngine_requestDevice(engine->adapter, engine->instance);
+    if (!engine->device) {
         goto error;
     }
 
-    flecsEngine_setDeviceErrorCallback(engine.device);
+    flecsEngine_setDeviceErrorCallback(engine->device);
 
-    engine.queue = wgpuDeviceGetQueue(engine.device);
+    engine->queue = wgpuDeviceGetQueue(engine->device);
 
-    if (flecsEngine_surfaceInterface_configureTarget(world, &engine, impl)) {
+    if (flecsEngine_surfaceInterface_configureTarget(world, engine, impl)) {
         goto error;
     }
 
-    if (flecsEngine_initRenderer(world, &engine)) {
+    if (flecsEngine_initRenderer(world, engine)) {
         goto error;
     }
 
-    *ptr = engine;
-
+    if (was_deferred) {
+        ecs_defer_resume(world);
+    }
     return 0;
 
 error:
     if (impl->interface && impl->interface->cleanup) {
-        impl->interface->cleanup(&engine, impl, false);
+        impl->interface->cleanup(engine, impl, false);
     }
     flecsEngine_surfaceImpl_release(impl);
-    flecsEngine_cleanup(world, &engine, false);
+    flecsEngine_cleanup(world, engine, false);
+    if (was_deferred) {
+        ecs_defer_resume(world);
+    }
     return -1;
 }
 

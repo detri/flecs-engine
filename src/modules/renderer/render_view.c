@@ -776,7 +776,7 @@ static void flecsEngine_renderView_renderBatches(
             WGPUTexture src_tex = batch_target_tex;
             if (src_tex) {
                 flecsEngine_transmission_updateSnapshot(
-                    engine, viewImpl, encoder, src_tex,
+                    world, engine, viewImpl, encoder, src_tex,
                     viewImpl->effect_target_width,
                     viewImpl->effect_target_height);
             }

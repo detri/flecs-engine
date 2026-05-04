@@ -50,9 +50,11 @@ ECS_PRIVATE
 });
 
 int flecsEngine_initPassthrough(
+    ecs_world_t *world,
     FlecsEngineImpl *impl);
 
 int flecsEngine_initDepthResolve(
+    ecs_world_t *world,
     FlecsEngineImpl *impl);
 
 void flecsEngine_depthResolve(

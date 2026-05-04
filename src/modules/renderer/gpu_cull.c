@@ -304,10 +304,11 @@ static WGPUBindGroupLayout flecsEngine_gpuCull_createBatchLayout(
 }
 
 int flecsEngine_gpuCull_init(
+    ecs_world_t *world,
     FlecsEngineImpl *engine)
 {
-    engine->gpu_cull.shader_module = flecsEngine_createShaderModule(
-        engine->device, FLECS_ENGINE_GPU_CULL_WGSL);
+    engine->gpu_cull.shader_module = flecsEngine_shader_ensureModule(
+        world, "GpuCullShader", FLECS_ENGINE_GPU_CULL_WGSL);
     if (!engine->gpu_cull.shader_module) {
         return -1;
     }
@@ -360,7 +361,6 @@ void flecsEngine_gpuCull_fini(
         wgpuBindGroupLayoutRelease);
     FLECS_WGPU_RELEASE(engine->gpu_cull.batch_bind_layout,
         wgpuBindGroupLayoutRelease);
-    FLECS_WGPU_RELEASE(engine->gpu_cull.shader_module, wgpuShaderModuleRelease);
 }
 
 int flecsEngine_gpuCull_initView(

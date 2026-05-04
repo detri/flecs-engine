@@ -10,10 +10,11 @@ static const char *kShaderSource =
     "}\n";
 
 int flecsEngine_initPassthrough(
+    ecs_world_t *world,
     FlecsEngineImpl *impl)
 {
-    WGPUShaderModule module = flecsEngine_createShaderModule(
-        impl->device, kShaderSource);
+    WGPUShaderModule module = flecsEngine_shader_ensureModule(
+        world, "PassthroughShader", kShaderSource);
     if (!module) {
         return -1;
     }
@@ -21,7 +22,6 @@ int flecsEngine_initPassthrough(
     impl->pipelines.passthrough_sampler =
         flecsEngine_createLinearClampSampler(impl->device);
     if (!impl->pipelines.passthrough_sampler) {
-        wgpuShaderModuleRelease(module);
         return -1;
     }
 
@@ -47,7 +47,6 @@ int flecsEngine_initPassthrough(
             .entryCount = 2
         });
     if (!impl->pipelines.passthrough_bind_layout) {
-        wgpuShaderModuleRelease(module);
         return -1;
     }
 
@@ -59,8 +58,6 @@ int flecsEngine_initPassthrough(
     impl->pipelines.passthrough_pipeline = flecsEngine_createFullscreenPipeline(
         impl, module, impl->pipelines.passthrough_bind_layout,
         NULL, NULL, &color_target, NULL);
-
-    wgpuShaderModuleRelease(module);
 
     return impl->pipelines.passthrough_pipeline ? 0 : -1;
 }

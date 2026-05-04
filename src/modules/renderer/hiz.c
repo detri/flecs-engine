@@ -160,12 +160,13 @@ static WGPUComputePipeline flecsEngine_hiz_createPipeline(
 }
 
 int flecsEngine_hiz_init(
+    ecs_world_t *world,
     FlecsEngineImpl *engine)
 {
-    engine->hiz.mip0_shader_module = flecsEngine_createShaderModule(
-        engine->device, FLECS_ENGINE_HIZ_MIP0_WGSL);
-    engine->hiz.reduce_shader_module = flecsEngine_createShaderModule(
-        engine->device, FLECS_ENGINE_HIZ_REDUCE_WGSL);
+    engine->hiz.mip0_shader_module = flecsEngine_shader_ensureModule(
+        world, "HiZMip0Shader", FLECS_ENGINE_HIZ_MIP0_WGSL);
+    engine->hiz.reduce_shader_module = flecsEngine_shader_ensureModule(
+        world, "HiZReduceShader", FLECS_ENGINE_HIZ_REDUCE_WGSL);
     if (!engine->hiz.mip0_shader_module || !engine->hiz.reduce_shader_module) {
         return -1;
     }
@@ -216,9 +217,6 @@ void flecsEngine_hiz_fini(
     FLECS_WGPU_RELEASE(engine->hiz.mip0_bind_layout, wgpuBindGroupLayoutRelease);
     FLECS_WGPU_RELEASE(engine->hiz.reduce_bind_layout,
         wgpuBindGroupLayoutRelease);
-    FLECS_WGPU_RELEASE(engine->hiz.mip0_shader_module, wgpuShaderModuleRelease);
-    FLECS_WGPU_RELEASE(engine->hiz.reduce_shader_module,
-        wgpuShaderModuleRelease);
 }
 
 static void flecsEngine_hiz_releaseViewResources(

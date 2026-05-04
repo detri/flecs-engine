@@ -716,8 +716,8 @@ static bool flecsEngine_bloom_setup(
         return false;
     }
 
-    WGPUShaderModule bloom_shader = flecsEngine_createShaderModule(
-        engine->device, kBloomShaderSource);
+    WGPUShaderModule bloom_shader = flecsEngine_shader_ensureModule(
+        (ecs_world_t*)world, "BloomComputeShader", kBloomShaderSource);
     if (!bloom_shader) {
         flecsEngine_bloom_releaseResources(&bloom);
         return false;
@@ -762,8 +762,6 @@ static bool flecsEngine_bloom_setup(
         bloom.bind_layout,
         bloom.composite_scene_layout,
         hdr_format);
-
-    wgpuShaderModuleRelease(bloom_shader);
 
     if (!bloom.downsample_first_pipeline ||
         !bloom.downsample_pipeline ||

@@ -55,6 +55,7 @@ const char* flecsEngine_texture_formatName(
     WGPUTextureFormat format);
 
 void flecsEngine_transmission_updateSnapshot(
+    ecs_world_t *world,
     FlecsEngineImpl *engine,
     FlecsRenderViewImpl *view_impl,
     WGPUCommandEncoder encoder,

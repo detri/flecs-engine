@@ -17,10 +17,11 @@ static const char *kShaderSource =
     "}\n";
 
 int flecsEngine_initDepthResolve(
+    ecs_world_t *world,
     FlecsEngineImpl *impl)
 {
-    WGPUShaderModule module = flecsEngine_createShaderModule(
-        impl->device, kShaderSource);
+    WGPUShaderModule module = flecsEngine_shader_ensureModule(
+        world, "DepthResolveShader", kShaderSource);
     if (!module) {
         return -1;
     }
@@ -41,7 +42,6 @@ int flecsEngine_initDepthResolve(
             .entryCount = 1
         });
     if (!impl->pipelines.depth_resolve_bind_layout) {
-        wgpuShaderModuleRelease(module);
         return -1;
     }
 
@@ -54,8 +54,6 @@ int flecsEngine_initDepthResolve(
     impl->pipelines.depth_resolve_pipeline = flecsEngine_createFullscreenPipeline(
         impl, module, impl->pipelines.depth_resolve_bind_layout,
         NULL, NULL, NULL, &depth_stencil);
-
-    wgpuShaderModuleRelease(module);
 
     return impl->pipelines.depth_resolve_pipeline ? 0 : -1;
 }

@@ -40,6 +40,7 @@ static const char *kMipGenShaderSource =
     "}\n";
 
 static void flecsEngine_textureArray_ensureBlitPipeline(
+    ecs_world_t *world,
     FlecsEngineImpl *impl)
 {
     if (impl->textures.blit_pipeline) return;
@@ -59,8 +60,8 @@ static void flecsEngine_textureArray_ensureBlitPipeline(
             .entryCount = 2
         });
 
-    WGPUShaderModule module = flecsEngine_createShaderModule(
-        impl->device, kBlitShaderSource);
+    WGPUShaderModule module = flecsEngine_shader_ensureModule(
+        world, "TextureArrayBlitShader", kBlitShaderSource);
 
     WGPUColorTargetState color_target = {
         .format = FLECS_ENGINE_BUCKET_FORMAT,
@@ -71,14 +72,13 @@ static void flecsEngine_textureArray_ensureBlitPipeline(
         impl, module, impl->textures.blit_bind_layout,
         NULL, NULL, &color_target, NULL);
 
-    wgpuShaderModuleRelease(module);
-
     /* Linear-filter, clamp-to-edge sampler used for the blit. */
     impl->textures.blit_sampler =
         flecsEngine_createLinearClampSampler(impl->device);
 }
 
 static void flecsEngine_textureArray_ensureMipGenPipeline(
+    ecs_world_t *world,
     FlecsEngineImpl *impl)
 {
     if (impl->textures.mipgen_pipeline) return;
@@ -101,13 +101,11 @@ static void flecsEngine_textureArray_ensureMipGenPipeline(
             .entryCount = 2
         });
 
-    WGPUShaderModule module = flecsEngine_createShaderModule(
-        impl->device, kMipGenShaderSource);
+    WGPUShaderModule module = flecsEngine_shader_ensureModule(
+        world, "TextureArrayMipGenShader", kMipGenShaderSource);
 
     impl->textures.mipgen_pipeline = flecsEngine_createComputePipeline(
         impl, module, impl->textures.mipgen_bind_layout, NULL);
-
-    wgpuShaderModuleRelease(module);
 }
 
 /* Run a single blit: sample from src_2d_view and write to dst_slice_view
@@ -201,8 +199,8 @@ void flecsEngine_textureArray_blitTextures(
     const ecs_world_t *world,
     FlecsEngineImpl *impl)
 {
-    flecsEngine_textureArray_ensureBlitPipeline(impl);
-    flecsEngine_textureArray_ensureMipGenPipeline(impl);
+    flecsEngine_textureArray_ensureBlitPipeline((ecs_world_t*)world, impl);
+    flecsEngine_textureArray_ensureMipGenPipeline((ecs_world_t*)world, impl);
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
         impl->device, &(WGPUCommandEncoderDescriptor){0});

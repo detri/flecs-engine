@@ -203,12 +203,14 @@ ECS_MOVE(FlecsAutoExposureImpl, dst, src, {
 })
 
 static WGPUComputePipeline flecsEngine_autoExposure_createPipeline(
+    ecs_world_t *world,
     const FlecsEngineImpl *engine,
+    const char *shader_name,
     const char *source,
     WGPUBindGroupLayout bind_layout)
 {
-    WGPUShaderModule module =
-        flecsEngine_createShaderModule(engine->device, source);
+    WGPUShaderModule module = flecsEngine_shader_ensureModule(
+        world, shader_name, source);
     if (!module) {
         return NULL;
     }
@@ -219,7 +221,6 @@ static WGPUComputePipeline flecsEngine_autoExposure_createPipeline(
             .bindGroupLayouts = &bind_layout
         });
     if (!pipeline_layout) {
-        wgpuShaderModuleRelease(module);
         return NULL;
     }
 
@@ -233,7 +234,6 @@ static WGPUComputePipeline flecsEngine_autoExposure_createPipeline(
         });
 
     wgpuPipelineLayoutRelease(pipeline_layout);
-    wgpuShaderModuleRelease(module);
     return pipeline;
 }
 
@@ -339,9 +339,11 @@ static bool flecsEngine_autoExposure_setup(
     }
 
     impl.build_pipeline = flecsEngine_autoExposure_createPipeline(
-        engine, kBuildShaderSource, impl.build_bind_layout);
+        (ecs_world_t*)world, engine, "AutoExposureBuildShader",
+        kBuildShaderSource, impl.build_bind_layout);
     impl.reduce_pipeline = flecsEngine_autoExposure_createPipeline(
-        engine, kReduceShaderSource, impl.reduce_bind_layout);
+        (ecs_world_t*)world, engine, "AutoExposureReduceShader",
+        kReduceShaderSource, impl.reduce_bind_layout);
 
     if (!impl.build_pipeline || !impl.reduce_pipeline) {
         flecsEngine_autoExposure_releaseResources(&impl);

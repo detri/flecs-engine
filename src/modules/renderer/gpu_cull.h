@@ -28,6 +28,7 @@ typedef struct {
 } flecsEngine_gpuDrawArgs_t;
 
 int flecsEngine_gpuCull_init(
+    ecs_world_t *world,
     FlecsEngineImpl *engine);
 
 void flecsEngine_gpuCull_fini(

@@ -57,6 +57,7 @@ static void flecsEngine_transmission_releaseTexture(
 }
 
 static bool flecsEngine_transmission_ensureDownsamplePipeline(
+    ecs_world_t *world,
     FlecsEngineImpl *engine)
 {
     if (engine->pipelines.opaque_snapshot_downsample_pipeline) {
@@ -101,8 +102,8 @@ static bool flecsEngine_transmission_ensureDownsamplePipeline(
         }
     }
 
-    WGPUShaderModule shader = flecsEngine_createShaderModule(
-        engine->device, kDownsampleShaderSource);
+    WGPUShaderModule shader = flecsEngine_shader_ensureModule(
+        world, "TransmissionDownsampleShader", kDownsampleShaderSource);
     if (!shader) {
         return false;
     }
@@ -117,8 +118,6 @@ static bool flecsEngine_transmission_ensureDownsamplePipeline(
             engine, shader,
             engine->pipelines.opaque_snapshot_downsample_layout,
             NULL, NULL, &color_target, NULL);
-
-    wgpuShaderModuleRelease(shader);
 
     return engine->pipelines.opaque_snapshot_downsample_pipeline != NULL;
 }
@@ -203,6 +202,7 @@ static void flecsEngine_transmission_downsampleMip(
 }
 
 void flecsEngine_transmission_updateSnapshot(
+    ecs_world_t *world,
     FlecsEngineImpl *engine,
     FlecsRenderViewImpl *view_impl,
     WGPUCommandEncoder encoder,
@@ -216,7 +216,7 @@ void flecsEngine_transmission_updateSnapshot(
         return;
     }
 
-    if (!flecsEngine_transmission_ensureDownsamplePipeline(engine)) {
+    if (!flecsEngine_transmission_ensureDownsamplePipeline(world, engine)) {
         FLECS_TRACY_ZONE_END;
         return;
     }

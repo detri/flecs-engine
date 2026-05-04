@@ -5,6 +5,7 @@ void flecsEngine_ibl_register(
     ecs_world_t *world);
 
 bool flecsEngine_ibl_initResources(
+    ecs_world_t *world,
     FlecsEngineImpl *engine,
     FlecsHdriImpl *ibl,
     const char *hdri_path,

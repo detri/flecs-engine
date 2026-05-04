@@ -980,8 +980,8 @@ static bool flecsEngine_clouds_setup(
             return false;
         }
 
-        WGPUShaderModule bake_mod = flecsEngine_createShaderModule(
-            engine->device, kShadowBakeShader);
+        WGPUShaderModule bake_mod = flecsEngine_shader_ensureModule(
+            (ecs_world_t*)world, "CloudsShadowBakeShader", kShadowBakeShader);
         if (!bake_mod) {
             flecsEngine_clouds_releaseResources(&impl);
             return false;
@@ -993,7 +993,6 @@ static bool flecsEngine_clouds_setup(
         impl.shadow_bake_pipeline = flecsEngine_createFullscreenPipeline(
             engine, bake_mod, impl.shadow_bake_layout,
             "vs_main", "fs_main", &bake_target, NULL);
-        wgpuShaderModuleRelease(bake_mod);
         if (!impl.shadow_bake_pipeline) {
             flecsEngine_clouds_releaseResources(&impl);
             return false;
@@ -1317,6 +1316,7 @@ static bool flecsEngine_clouds_bind(
 /* Build/recycle the low-res cloud target + upsample pipeline when
  * render_scale > 1. Textures rebuild when dims/format/scale change. */
 static bool flecs_clouds_ensureUpsampleResources(
+    ecs_world_t *world,
     const FlecsEngineImpl *engine,
     FlecsCloudsImpl *impl,
     const FlecsRenderViewImpl *view_impl,
@@ -1407,8 +1407,8 @@ static bool flecs_clouds_ensureUpsampleResources(
         impl->upsample_pipeline_format != output_format)
     {
         FLECS_WGPU_RELEASE(impl->upsample_pipeline, wgpuRenderPipelineRelease);
-        WGPUShaderModule mod = flecsEngine_createShaderModule(
-            engine->device, kCloudUpsampleShader);
+        WGPUShaderModule mod = flecsEngine_shader_ensureModule(
+            world, "CloudsUpsampleShader", kCloudUpsampleShader);
         if (!mod) return false;
         WGPUColorTargetState target = {
             .format = output_format,
@@ -1417,7 +1417,6 @@ static bool flecs_clouds_ensureUpsampleResources(
         impl->upsample_pipeline = flecsEngine_createFullscreenPipeline(
             engine, mod, impl->upsample_layout,
             "vs_main", "fs_main", &target, NULL);
-        wgpuShaderModuleRelease(mod);
         if (!impl->upsample_pipeline) return false;
         impl->upsample_pipeline_format = output_format;
     }
@@ -1507,8 +1506,8 @@ static bool flecsEngine_clouds_render(
             "Clouds", NULL);
     }
 
-    if (!flecs_clouds_ensureUpsampleResources(engine, impl, view_impl,
-            input_view, output_format, scale))
+    if (!flecs_clouds_ensureUpsampleResources((ecs_world_t*)world, engine, impl,
+            view_impl, input_view, output_format, scale))
     {
         return false;
     }

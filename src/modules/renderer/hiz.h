@@ -4,6 +4,7 @@
 #include "../../types.h"
 
 int flecsEngine_hiz_init(
+    ecs_world_t *world,
     FlecsEngineImpl *engine);
 
 void flecsEngine_hiz_fini(

@@ -38,10 +38,8 @@ int flecsEngine_shadow_initShared(
     ecs_world_t *world,
     FlecsEngineImpl *impl)
 {
-    (void)world;
-
-    impl->shadow.shader_module = flecsEngine_createShaderModule(
-        impl->device, kShadowDepthShaderSource);
+    impl->shadow.shader_module = flecsEngine_shader_ensureModule(
+        world, "ShadowDepthShader", kShadowDepthShaderSource);
     if (!impl->shadow.shader_module) {
         ecs_err("failed to compile shadow depth shader");
         return -1;
@@ -93,7 +91,6 @@ void flecsEngine_shadow_cleanupShared(
 {
     FLECS_WGPU_RELEASE(impl->shadow.pass_bind_layout, wgpuBindGroupLayoutRelease);
     FLECS_WGPU_RELEASE(impl->shadow.sampler, wgpuSamplerRelease);
-    FLECS_WGPU_RELEASE(impl->shadow.shader_module, wgpuShaderModuleRelease);
 }
 
 int flecsEngine_shadow_initView(

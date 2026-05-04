@@ -28,6 +28,7 @@ bool flecsIblCreateSampler(
     FlecsHdriImpl *ibl);
 
 bool flecsIblRunPreprocessPasses(
+    ecs_world_t *world,
     const FlecsEngineImpl *engine,
     FlecsHdriImpl *ibl,
     WGPUCommandEncoder encoder,

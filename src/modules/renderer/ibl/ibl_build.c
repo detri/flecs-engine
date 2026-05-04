@@ -467,6 +467,7 @@ static bool flecsIblSubmitFullscreenPass(
 }
 
 bool flecsIblRunPreprocessPasses(
+    ecs_world_t *world,
     const FlecsEngineImpl *engine,
     FlecsHdriImpl *ibl,
     WGPUCommandEncoder encoder,
@@ -487,12 +488,12 @@ bool flecsIblRunPreprocessPasses(
     WGPURenderPipeline irradiance_pipeline = NULL;
     WGPURenderPipeline brdf_pipeline = NULL;
 
-    prefilter_shader = flecsEngine_createShaderModule(
-        engine->device, kPrefilterShaderSource);
-    irradiance_shader = flecsEngine_createShaderModule(
-        engine->device, kIrradianceShaderSource);
-    brdf_shader = flecsEngine_createShaderModule(
-        engine->device, kBrdfLutShaderSource);
+    prefilter_shader = flecsEngine_shader_ensureModule(
+        world, "IblPrefilterShader", kPrefilterShaderSource);
+    irradiance_shader = flecsEngine_shader_ensureModule(
+        world, "IblIrradianceShader", kIrradianceShaderSource);
+    brdf_shader = flecsEngine_shader_ensureModule(
+        world, "IblBrdfLutShader", kBrdfLutShaderSource);
     if (!prefilter_shader || !irradiance_shader || !brdf_shader) {
         goto cleanup;
     }
@@ -744,20 +745,11 @@ cleanup:
     if (brdf_bind_layout) {
         wgpuBindGroupLayoutRelease(brdf_bind_layout);
     }
-    if (brdf_shader) {
-        wgpuShaderModuleRelease(brdf_shader);
-    }
-    if (irradiance_shader) {
-        wgpuShaderModuleRelease(irradiance_shader);
-    }
-    if (prefilter_shader) {
-        wgpuShaderModuleRelease(prefilter_shader);
-    }
-
     return result;
 }
 
 bool flecsEngine_ibl_initResources(
+    ecs_world_t *world,
     FlecsEngineImpl *engine,
     FlecsHdriImpl *ibl,
     const char *hdri_path,
@@ -836,7 +828,7 @@ bool flecsEngine_ibl_initResources(
             engine->device, &(WGPUCommandEncoderDescriptor){0});
         if (!enc) goto done;
         bool ok_pp = flecsIblRunPreprocessPasses(
-            engine, ibl, enc, filter_sample_count, lut_sample_count);
+            world, engine, ibl, enc, filter_sample_count, lut_sample_count);
         WGPUCommandBuffer cb = wgpuCommandEncoderFinish(
             enc, &(WGPUCommandBufferDescriptor){0});
         wgpuCommandEncoderRelease(enc);
