@@ -181,7 +181,7 @@ int main(
   flecsCreateSurface(world, options);
 
   ecs_entity_t engine_script = ecs_script(world, {
-    .filename = "etc/assets/scenes/common/engine.flecs"
+    .filename = "etc/scenes/common/engine.flecs"
   });
   if (!engine_script) {
     ecs_err("failed to load engine config script\n");
@@ -189,17 +189,17 @@ int main(
 
   const char *scene_filename = options.scene_path
     ? options.scene_path
-    // : "etc/assets/scenes/bistro.flecs";
-    // : "etc/assets/scenes/kenney_city.flecs";
-    // : "etc/assets/scenes/sponza.flecs";
-    // : "etc/assets/scenes/a_beautiful_game.flecs";
-    // : "etc/assets/scenes/flight_helmet.flecs";
-    // : "etc/assets/scenes/damaged_helmet.flecs";
-    // : "etc/assets/scenes/city.flecs";
-    // : "etc/assets/scenes/museum.flecs";
-    // : "etc/assets/scenes/zero_day.flecs";
-    : "etc/assets/scenes/cube.flecs";
-    // : "etc/assets/scenes/empty.flecs";
+    // : "etc/scenes/bistro.flecs";
+    // : "etc/scenes/kenney_city.flecs";
+    // : "etc/scenes/sponza.flecs";
+    // : "etc/scenes/a_beautiful_game.flecs";
+    // : "etc/scenes/flight_helmet.flecs";
+    // : "etc/scenes/damaged_helmet.flecs";
+    // : "etc/scenes/city.flecs";
+    // : "etc/scenes/museum.flecs";
+    // : "etc/scenes/zero_day.flecs";
+    : "etc/scenes/cube.flecs";
+    // : "etc/scenes/empty.flecs";
 
   ecs_entity_t s = ecs_script(world, {
     .filename = scene_filename

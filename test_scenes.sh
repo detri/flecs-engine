@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Render every scene in etc/assets/scenes to test/out/<scene>.ppm and compare
+# Render every scene in etc/scenes to test/out/<scene>.ppm and compare
 # against the baseline images in test/scenes/<scene>.ppm.
 #
 # Generate the baselines first with: ./test_baseline.sh
@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 RUN="./run.sh"
-SCENES_DIR="etc/assets/scenes"
+SCENES_DIR="etc/scenes"
 BASELINE_DIR="test/scenes"
 OUT_DIR="test/out"
 

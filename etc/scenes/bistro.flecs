@@ -6,15 +6,17 @@ camera {
     LookAt: {-60.388, 7.801, 49.59}
 }
 
-time_of_day {
-    TimeOfDay: {
-        light: sun,
-        atmosphere: view.atmosphere,
-        hour: 13.7,
-        day_of_year: 80,
-        latitude: 25.2,
-        north_offset: 0,
-        time_scale: 0.0
+sky {
+    time_of_day {
+        TimeOfDay: {
+            light: sun,
+            atmosphere: atmosphere,
+            hour: 13.7,
+            day_of_year: 80,
+            latitude: 25.2,
+            north_offset: 0,
+            time_scale: 0.0
+        }
     }
 }
 

@@ -6,7 +6,7 @@ camera {
     LookAt: {-1.168, 9.61, -40.431}
 }
 
-sun {
+sky.sun {
     Position3: {1, 6, -1}
 }
 

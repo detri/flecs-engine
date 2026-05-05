@@ -173,8 +173,8 @@ if(EMSCRIPTEN)
     -sASYNCIFY_STACK_SIZE=65536
     -sSTACK_SIZE=1048576
     "-sASYNCIFY_IMPORTS=['emscripten_sleep']"
-    "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/etc/assets/scenes/cube.flecs@etc/assets/scenes/cube.flecs"
-    "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/etc/assets/scenes/empty.flecs@etc/assets/scenes/empty.flecs"
+    "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/etc/scenes/cube.flecs@etc/scenes/cube.flecs"
+    "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/etc/scenes/empty.flecs@etc/scenes/empty.flecs"
     "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/shell.html"
   )
 

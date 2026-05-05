@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Render a baseline frame for every scene in etc/assets/scenes and store the
+# Render a baseline frame for every scene in etc/scenes and store the
 # result as a PPM image under test/scenes/<scene>.ppm.
 #
 # Usage: ./test_baseline.sh
@@ -12,7 +12,7 @@ cd "$SCRIPT_DIR"
 
 BUILD_DIR="build-release"
 ENGINE="./$BUILD_DIR/flecs_engine"
-SCENES_DIR="etc/assets/scenes"
+SCENES_DIR="etc/scenes"
 OUT_DIR="test/scenes"
 
 echo "==> Building engine (Release)"
