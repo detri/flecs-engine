@@ -574,8 +574,7 @@ void FlecsEngineRendererImport(
     ECS_SYSTEM(world, FlecsEngineRender, EcsOnStore,
         flecs.engine.EngineImpl);
 
-    ecs_system(world, {
-        .entity = ecs_id(FlecsEngineRender),
+    ecs_system_update(world, ecs_id(FlecsEngineRender), &(ecs_system_desc_t){
         .immediate = true
     });
 

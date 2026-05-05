@@ -51,7 +51,7 @@ FetchContent_MakeAvailable(cglm)
 FetchContent_Declare(
   flecs
   GIT_REPOSITORY https://github.com/SanderMertens/flecs.git
-  GIT_TAG script_include
+  GIT_TAG master
 )
 set(FLECS_SHARED OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(flecs)
