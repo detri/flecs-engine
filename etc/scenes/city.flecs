@@ -1,7 +1,4 @@
-// Script that creates a city
-//
-// For C/C++ examples and docs go to:
-//  https://github.com/SanderMertens/flecs
+include config/sky
 
 using flecs.script
 using flecs.engine.*

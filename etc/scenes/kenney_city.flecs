@@ -1,3 +1,4 @@
+include config/sky
 include common/kenney_city_template
 include common/atmosphere_purple
 

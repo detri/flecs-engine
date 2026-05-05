@@ -128,22 +128,6 @@ static int flecsParseArgs(
   return 0;
 }
 
-static void flecsCreateSurface(
-  ecs_world_t *world,
-  FlecsAppOptions options)
-{
-  ecs_entity_t surface = ecs_entity(world, { .name = "surface" });
-  ecs_set(world, surface, FlecsSurface, {
-    .title = "Hello World",
-    .width = options.width,
-    .height = options.height,
-    .resolution_scale = 1,
-    .vsync = true,
-    .msaa = FlecsMsaa4x,
-    .write_to_file = options.frame_output_path,
-  });
-}
-
 #ifdef __EMSCRIPTEN__
 static void flecsWasmFrame(void *arg) {
   ecs_world_t *world = arg;
@@ -178,34 +162,24 @@ int main(
     ecs_log_set_level(0);
   }
 
-  flecsCreateSurface(world, options);
-
-  ecs_entity_t engine_script = ecs_script(world, {
-    .filename = "etc/scenes/common/engine.flecs"
+  ecs_entity_t surface = ecs_entity(world, { .name = "surface" });
+  ecs_set(world, surface, FlecsSurface, {
+    .title = "Hello World",
+    .width = options.width,
+    .height = options.height,
+    .resolution_scale = 1,
+    .vsync = true,
+    .msaa = FlecsMsaa4x,
+    .write_to_file = options.frame_output_path,
   });
-  if (!engine_script) {
-    ecs_err("failed to load engine config script\n");
-  }
 
-  const char *scene_filename = options.scene_path
-    ? options.scene_path
-    // : "etc/scenes/bistro.flecs";
-    // : "etc/scenes/kenney_city.flecs";
-    // : "etc/scenes/sponza.flecs";
-    // : "etc/scenes/a_beautiful_game.flecs";
-    // : "etc/scenes/flight_helmet.flecs";
-    // : "etc/scenes/damaged_helmet.flecs";
-    // : "etc/scenes/city.flecs";
-    // : "etc/scenes/museum.flecs";
-    // : "etc/scenes/zero_day.flecs";
-    : "etc/scenes/cube.flecs";
-    // : "etc/scenes/empty.flecs";
-
-  ecs_entity_t s = ecs_script(world, {
-    .filename = scene_filename
-  });
-  if (!s) {
-    ecs_err("failed to load script\n");
+  if (options.scene_path) {
+    ecs_entity_t s = ecs_script(world, {
+      .filename = options.scene_path
+    });
+    if (!s) {
+      ecs_err("failed to load script\n");
+    }
   }
 
 #ifdef __EMSCRIPTEN__
