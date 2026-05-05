@@ -39,12 +39,10 @@ static const char *kMipGenShaderSource =
     "  textureStore(dst, vec2<i32>(id.xy), layer, avg);\n"
     "}\n";
 
-static void flecsEngine_textureArray_ensureBlitPipeline(
+static void flecsEngine_textureArray_initBlitPipeline(
     ecs_world_t *world,
     FlecsEngineImpl *impl)
 {
-    if (impl->textures.blit_pipeline) return;
-
     WGPUBindGroupLayoutEntry blit_entries[2] = {0};
     blit_entries[0].binding = 0;
     blit_entries[0].visibility = WGPUShaderStage_Fragment;
@@ -77,12 +75,10 @@ static void flecsEngine_textureArray_ensureBlitPipeline(
         flecsEngine_createLinearClampSampler(impl->device);
 }
 
-static void flecsEngine_textureArray_ensureMipGenPipeline(
+static void flecsEngine_textureArray_initMipGenPipeline(
     ecs_world_t *world,
     FlecsEngineImpl *impl)
 {
-    if (impl->textures.mipgen_pipeline) return;
-
     WGPUBindGroupLayoutEntry mip_entries[2] = {0};
     mip_entries[0].binding = 0;
     mip_entries[0].visibility = WGPUShaderStage_Compute;
@@ -106,6 +102,14 @@ static void flecsEngine_textureArray_ensureMipGenPipeline(
 
     impl->textures.mipgen_pipeline = flecsEngine_createComputePipeline(
         impl, module, impl->textures.mipgen_bind_layout, NULL);
+}
+
+void flecsEngine_textureBlit_init(
+    ecs_world_t *world,
+    FlecsEngineImpl *impl)
+{
+    flecsEngine_textureArray_initBlitPipeline(world, impl);
+    flecsEngine_textureArray_initMipGenPipeline(world, impl);
 }
 
 /* Run a single blit: sample from src_2d_view and write to dst_slice_view
@@ -199,9 +203,6 @@ void flecsEngine_textureArray_blitTextures(
     const ecs_world_t *world,
     FlecsEngineImpl *impl)
 {
-    flecsEngine_textureArray_ensureBlitPipeline((ecs_world_t*)world, impl);
-    flecsEngine_textureArray_ensureMipGenPipeline((ecs_world_t*)world, impl);
-
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
         impl->device, &(WGPUCommandEncoderDescriptor){0});
 

@@ -45,6 +45,10 @@ void flecsEngine_bc7_encodeSolidBlock(
     uint8_t block[16],
     uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 
+void flecsEngine_textureBlit_init(
+    ecs_world_t *world,
+    FlecsEngineImpl *impl);
+
 void flecsEngine_textureBlit_release(
     FlecsEngineImpl *impl);
 

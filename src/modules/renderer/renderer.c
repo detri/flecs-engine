@@ -178,6 +178,8 @@ int flecsEngine_initRenderer(
         goto error;
     }
 
+    flecsEngine_textureBlit_init(world, impl);
+
     flecsEngine_gpuTiming_init(impl);
 
     return 0;
