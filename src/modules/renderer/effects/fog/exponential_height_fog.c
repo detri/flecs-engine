@@ -131,7 +131,7 @@ ECS_MOVE(FlecsHeightFogImpl, dst, src, {
 
 static void flecsEngine_heightFog_fillUniform(
     const ecs_world_t *world,
-    ecs_entity_t effect_entity,
+    const FlecsRenderViewImpl *view_impl,
     const FlecsHeightFog *fog,
     FlecsHeightFogUniform *uniform)
 {
@@ -156,26 +156,15 @@ static void flecsEngine_heightFog_fillUniform(
     uniform->atmos_params[2] = 0.0f;
     uniform->atmos_params[3] = 0.0f;
 
-    ecs_entity_t view_entity = ecs_get_target(world, effect_entity, EcsChildOf, 0);
-    if (!view_entity) return;
-
-    const FlecsRenderView *view = ecs_get(world, view_entity, FlecsRenderView);
-    if (!view || !view->camera) return;
-
-    const FlecsCameraImpl *camera = ecs_get(world, view->camera, FlecsCameraImpl);
-    if (!camera) return;
+    if (!view_impl || !view_impl->camera_view_proj_valid) return;
 
     mat4 mvp;
-    glm_mat4_copy((vec4*)camera->mvp, mvp);
+    glm_mat4_copy((vec4*)view_impl->camera_view_proj, mvp);
     glm_mat4_inv(mvp, uniform->inv_vp);
 
-    const FlecsWorldTransform3 *camera_transform = ecs_get(
-        world, view->camera, FlecsWorldTransform3);
-    if (camera_transform) {
-        uniform->camera_pos[0] = camera_transform->m[3][0];
-        uniform->camera_pos[1] = camera_transform->m[3][1];
-        uniform->camera_pos[2] = camera_transform->m[3][2];
-    }
+    uniform->camera_pos[0] = view_impl->camera_pos[0];
+    uniform->camera_pos[1] = view_impl->camera_pos[1];
+    uniform->camera_pos[2] = view_impl->camera_pos[2];
 
     if (fog->atmosphere) {
         const FlecsAtmosphere *atm = ecs_get(
@@ -312,7 +301,7 @@ static bool flecsEngine_heightFog_bind(
     }
 
     FlecsHeightFogUniform uniform = {0};
-    flecsEngine_heightFog_fillUniform(world, effect_entity, fog, &uniform);
+    flecsEngine_heightFog_fillUniform(world, view_impl, fog, &uniform);
     wgpuQueueWriteBuffer(
         engine->queue,
         fog_impl->uniform_buffer,

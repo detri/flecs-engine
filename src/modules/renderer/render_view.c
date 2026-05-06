@@ -1067,6 +1067,8 @@ static void flecsEngine_renderView_cull(
             impl->frustum_valid = true;
             memcpy(impl->camera_view_proj, camera->mvp,
                 sizeof(impl->camera_view_proj));
+            memcpy(impl->camera_proj, camera->proj,
+                sizeof(impl->camera_proj));
             impl->camera_view_proj_valid = true;
 
             if (view->shadow.enabled && view->shadow.max_range > 0.0f) {

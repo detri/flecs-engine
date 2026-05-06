@@ -85,7 +85,7 @@ ECS_MOVE(FlecsSunShaftsImpl, dst, src, {
 
 static void flecsEngine_sunShafts_fillUniform(
     const ecs_world_t *world,
-    ecs_entity_t effect_entity,
+    const FlecsRenderViewImpl *view_impl,
     const FlecsSunShafts *shafts,
     FlecsSunShaftsUniform *uniform)
 {
@@ -114,16 +114,11 @@ static void flecsEngine_sunShafts_fillUniform(
     uniform->color[2] = flecsEngine_colorChannelToFloat(shaft_rgb->b);
     uniform->color[3] = flecsEngine_colorChannelToFloat(shaft_rgb->a);
 
-    ecs_entity_t view_entity = ecs_get_target(world, effect_entity, EcsChildOf, 0);
-    if (!view_entity) return;
-
-    const FlecsRenderView *view = ecs_get(world, view_entity, FlecsRenderView);
-    const FlecsRenderViewImpl *view_impl = ecs_get(
-        world, view_entity, FlecsRenderViewImpl);
-    if (!view || !view_impl || !view->camera || !view_impl->main_light) return;
-
-    const FlecsCameraImpl *camera = ecs_get(world, view->camera, FlecsCameraImpl);
-    if (!camera) return;
+    if (!view_impl || !view_impl->main_light ||
+        !view_impl->camera_view_proj_valid)
+    {
+        return;
+    }
 
     const FlecsRotation3 *rot = ecs_get(
         world, view_impl->main_light, FlecsRotation3);
@@ -132,28 +127,19 @@ static void flecsEngine_sunShafts_fillUniform(
     vec3 ray_dir;
     if (!flecsEngine_lightDirFromRotation(rot, ray_dir)) return;
 
-    vec3 camera_pos = {0.0f, 0.0f, 0.0f};
-    const FlecsWorldTransform3 *camera_transform = ecs_get(
-        world, view->camera, FlecsWorldTransform3);
-    if (camera_transform) {
-        camera_pos[0] = camera_transform->m[3][0];
-        camera_pos[1] = camera_transform->m[3][1];
-        camera_pos[2] = camera_transform->m[3][2];
-    }
-
     /* The sun is a directional light infinitely far in the -ray_dir
      * direction. Project a distant point so the clip-space w is positive
      * and stable. */
     const float kSunDistance = 1.0e4f;
     vec4 sun_world = {
-        camera_pos[0] - ray_dir[0] * kSunDistance,
-        camera_pos[1] - ray_dir[1] * kSunDistance,
-        camera_pos[2] - ray_dir[2] * kSunDistance,
+        view_impl->camera_pos[0] - ray_dir[0] * kSunDistance,
+        view_impl->camera_pos[1] - ray_dir[1] * kSunDistance,
+        view_impl->camera_pos[2] - ray_dir[2] * kSunDistance,
         1.0f
     };
 
     mat4 mvp;
-    glm_mat4_copy((vec4*)camera->mvp, mvp);
+    glm_mat4_copy((vec4*)view_impl->camera_view_proj, mvp);
 
     vec4 clip;
     glm_mat4_mulv(mvp, sun_world, clip);
@@ -253,7 +239,7 @@ static bool flecsEngine_sunShafts_bind(
     }
 
     FlecsSunShaftsUniform uniform = {0};
-    flecsEngine_sunShafts_fillUniform(world, effect_entity, shafts, &uniform);
+    flecsEngine_sunShafts_fillUniform(world, view_impl, shafts, &uniform);
     wgpuQueueWriteBuffer(
         engine->queue,
         shafts_impl->uniform_buffer,

@@ -174,8 +174,7 @@ ECS_MOVE(FlecsSSAOImpl, dst, src, {
 })
 
 static void flecsEngine_ssao_fillUniform(
-    const ecs_world_t *world,
-    ecs_entity_t effect_entity,
+    const FlecsRenderViewImpl *view_impl,
     const FlecsSSAO *ssao,
     FlecsSSAOUniform *uniform)
 {
@@ -192,30 +191,17 @@ static void flecsEngine_ssao_fillUniform(
     uniform->viewport[2] = 0.0f;
     uniform->viewport[3] = 0.0f;
 
-    ecs_entity_t view_entity = ecs_get_target(world, effect_entity, EcsChildOf, 0);
-    if (!view_entity) {
+    if (!view_impl || !view_impl->camera_view_proj_valid) {
         return;
     }
 
-    const FlecsRenderView *view = ecs_get(world, view_entity, FlecsRenderView);
-    if (!view || !view->camera) {
-        return;
-    }
-
-    const FlecsCameraImpl *camera = ecs_get(world, view->camera, FlecsCameraImpl);
-    if (!camera) {
-        return;
-    }
-
-    glm_mat4_copy((vec4*)camera->proj, uniform->proj);
+    glm_mat4_copy((vec4*)view_impl->camera_proj, uniform->proj);
 
     mat4 proj_copy;
-    glm_mat4_copy((vec4*)camera->proj, proj_copy);
+    glm_mat4_copy((vec4*)view_impl->camera_proj, proj_copy);
     glm_mat4_inv(proj_copy, uniform->inv_proj);
 
-    const FlecsRenderViewImpl *view_impl = ecs_get(
-        world, view_entity, FlecsRenderViewImpl);
-    if (view_impl && view_impl->effect_target_width > 0) {
+    if (view_impl->effect_target_width > 0) {
         float w = (float)view_impl->effect_target_width;
         float h = (float)view_impl->effect_target_height;
         uniform->viewport[0] = w;
@@ -304,7 +290,7 @@ static bool flecsEngine_ssao_bind(
     }
 
     FlecsSSAOUniform uniform = {0};
-    flecsEngine_ssao_fillUniform(world, effect_entity, ssao, &uniform);
+    flecsEngine_ssao_fillUniform(view_impl, ssao, &uniform);
     wgpuQueueWriteBuffer(
         engine->queue,
         ssao_impl->uniform_buffer,

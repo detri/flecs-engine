@@ -166,6 +166,7 @@ struct FlecsRenderViewImpl {
     bool screen_cull_valid;
 
     float camera_view_proj[4][4];
+    float camera_proj[4][4];
     bool camera_view_proj_valid;
 
     flecs_view_shadow_t shadow;

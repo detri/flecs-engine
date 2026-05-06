@@ -1025,29 +1025,23 @@ static bool flecsEngine_clouds_setup(
 static void flecs_clouds_fillUniform(
     const ecs_world_t *world,
     ecs_entity_t effect_entity,
+    const FlecsRenderViewImpl *view_impl,
     const FlecsClouds *clouds,
     FlecsCloudsImpl *impl,
     FlecsCloudsUniform *uniform)
 {
     glm_mat4_identity(uniform->inv_vp);
 
-    ecs_entity_t view_entity = ecs_get_target(world, effect_entity, EcsChildOf, 0);
-    const FlecsRenderView *view = view_entity
-        ? ecs_get(world, view_entity, FlecsRenderView) : NULL;
-    const FlecsCameraImpl *camera = (view && view->camera)
-        ? ecs_get(world, view->camera, FlecsCameraImpl) : NULL;
-    if (camera) {
+    if (view_impl && view_impl->camera_view_proj_valid) {
         mat4 mvp;
-        glm_mat4_copy((vec4*)camera->mvp, mvp);
+        glm_mat4_copy((vec4*)view_impl->camera_view_proj, mvp);
         glm_mat4_inv(mvp, uniform->inv_vp);
     }
 
-    const FlecsWorldTransform3 *cam_xf = (view && view->camera)
-        ? ecs_get(world, view->camera, FlecsWorldTransform3) : NULL;
-    if (cam_xf) {
-        uniform->camera_pos[0] = cam_xf->m[3][0];
-        uniform->camera_pos[1] = cam_xf->m[3][1];
-        uniform->camera_pos[2] = cam_xf->m[3][2];
+    if (view_impl) {
+        uniform->camera_pos[0] = view_impl->camera_pos[0];
+        uniform->camera_pos[1] = view_impl->camera_pos[1];
+        uniform->camera_pos[2] = view_impl->camera_pos[2];
         uniform->camera_pos[3] = 1.0f;
     }
 
@@ -1215,6 +1209,7 @@ static void flecs_clouds_fillUniform(
 static bool flecs_clouds_updateState(
     const ecs_world_t *world,
     FlecsEngineImpl *engine,
+    const FlecsRenderViewImpl *view_impl,
     ecs_entity_t effect_entity,
     FlecsCloudsImpl *impl,
     const FlecsClouds *clouds)
@@ -1227,7 +1222,7 @@ static bool flecs_clouds_updateState(
     impl->frame_counter++;
 
     FlecsCloudsUniform uniform = {0};
-    flecs_clouds_fillUniform(world, effect_entity, clouds, impl, &uniform);
+    flecs_clouds_fillUniform(world, effect_entity, view_impl, clouds, impl, &uniform);
     wgpuQueueWriteBuffer(engine->queue, impl->uniform_buffer, 0,
         &uniform, sizeof(uniform));
 
@@ -1478,7 +1473,7 @@ static bool flecsEngine_clouds_render(
     if (!clouds) return false;
 
     /* Update state first so the bake below reads fresh uniforms. */
-    if (!flecs_clouds_updateState(world, engine, effect_entity, impl, clouds)) {
+    if (!flecs_clouds_updateState(world, engine, view_impl, effect_entity, impl, clouds)) {
         return false;
     }
 
