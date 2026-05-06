@@ -189,3 +189,4 @@ else()
 endif()
 
 add_subdirectory(projects/flecs)
+add_subdirectory(projects/traffic)

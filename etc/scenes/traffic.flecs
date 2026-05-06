@@ -1,0 +1,39 @@
+include config/sky
+include common/kenney_city_template
+
+using flecs.engine.*
+using flecs.script
+
+camera {
+    Position3: {-30, 80, -150}
+    LookAt: {60, 0, 60}
+    Camera: {
+        fov: math.PI / 3,
+        near_: 1,
+        far_: 6000
+    }
+}
+
+sky.time_of_day {
+    TimeOfDay: {
+        light: sky.sun,
+        moon_light: sky.moon,
+        stars: sky.stars,
+        atmosphere: sky.atmosphere,
+        hour: 14,
+        day_of_year: 80,
+        latitude: 25.2
+    }
+}
+
+ground {
+    Position3: {y: -0.5}
+    Box: {10000, 1, 10000}
+    Rgba: {30, 30, 30}
+}
+
+kenney.City city {
+    Position3: {y: 1}
+}
+
+include common/traffic_grid
