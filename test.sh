@@ -12,8 +12,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-BUILD_DIR="build-release"
-ENGINE="./$BUILD_DIR/flecs_engine"
+BUILD_DIR="build/release"
+ENGINE="./$BUILD_DIR/flecs"
 SCENES_DIR="etc/scenes"
 BASELINE_DIR="test/scenes"
 OUT_DIR="test/out"

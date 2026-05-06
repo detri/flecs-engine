@@ -6,9 +6,9 @@ The project is still WIP and currently only works on MacOS.
 ## Usage
 Build & run the engine:
 ```sh
-cmake -S . -B build
-cmake --build build
-./build/flecs_engine
+cmake -S . -B build/debug
+cmake --build build/debug
+./build/debug/flecs
 ```
 
 ## Why should I use this?

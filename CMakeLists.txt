@@ -6,6 +6,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
 option(FLECS_ENGINE_TRACY "Enable Tracy profiler integration" OFF)
 
 # Release build: highest optimization + link-time optimization
@@ -103,7 +105,7 @@ list(APPEND FLECS_ENGINE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/src/deps.cc
 )
 
-add_executable(flecs_engine ${FLECS_ENGINE_SOURCES})
+add_library(flecs_engine STATIC ${FLECS_ENGINE_SOURCES})
 
 if(NOT EMSCRIPTEN)
   target_compile_definitions(flecs_engine PRIVATE GLFW_EXPOSE_NATIVE_COCOA)
@@ -113,8 +115,8 @@ endif()
 if(NOT EMSCRIPTEN)
   if(WGPU_FOUND)
     target_include_directories(flecs_engine PRIVATE ${WGPU_INCLUDE_DIRS})
-    target_link_directories(flecs_engine PRIVATE ${WGPU_LIBRARY_DIRS})
-    target_link_libraries(flecs_engine PRIVATE ${WGPU_LIBRARIES})
+    target_link_directories(flecs_engine PUBLIC ${WGPU_LIBRARY_DIRS})
+    target_link_libraries(flecs_engine PUBLIC ${WGPU_LIBRARIES})
   else()
     set(WGPU_NATIVE_DIR ${CMAKE_BINARY_DIR}/_deps/wgpu_native-src)
     set(WGPU_NATIVE_LIB ${WGPU_NATIVE_DIR}/target/release/libwgpu_native.dylib)
@@ -140,7 +142,7 @@ if(NOT EMSCRIPTEN)
       ${WGPU_NATIVE_DIR}/ffi
       ${WGPU_NATIVE_DIR}/ffi/webgpu-headers
     )
-    target_link_libraries(flecs_engine PRIVATE wgpu_native_lib)
+    target_link_libraries(flecs_engine PUBLIC wgpu_native_lib)
   endif()
 endif()
 
@@ -158,38 +160,32 @@ target_include_directories(flecs_engine PRIVATE
 
 if(FLECS_ENGINE_TRACY AND NOT EMSCRIPTEN)
   find_package(Tracy REQUIRED)
-  target_link_libraries(flecs_engine PRIVATE Tracy::TracyClient)
-  target_compile_definitions(flecs_engine PRIVATE TRACY_ENABLE FLECS_ENGINE_TRACY)
+  target_link_libraries(flecs_engine PUBLIC Tracy::TracyClient)
+  target_compile_definitions(flecs_engine PUBLIC TRACY_ENABLE FLECS_ENGINE_TRACY)
 endif()
 
 if(EMSCRIPTEN)
-  target_link_libraries(flecs_engine PRIVATE cglm flecs_static)
+  target_link_libraries(flecs_engine PUBLIC cglm flecs_static)
 
-  target_link_options(flecs_engine PRIVATE
+  target_compile_options(flecs_engine PUBLIC
     -sUSE_GLFW=3
     -sUSE_WEBGPU=1
-    -sALLOW_MEMORY_GROWTH=1
-    -sASYNCIFY
-    -sASYNCIFY_STACK_SIZE=65536
-    -sSTACK_SIZE=1048576
-    "-sASYNCIFY_IMPORTS=['emscripten_sleep']"
-    "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/etc/scenes/cube.flecs@etc/scenes/cube.flecs"
-    "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/etc/scenes/empty.flecs@etc/scenes/empty.flecs"
-    "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/shell.html"
   )
-
-  set_target_properties(flecs_engine PROPERTIES
-    SUFFIX ".html"
+  target_link_options(flecs_engine PUBLIC
+    -sUSE_GLFW=3
+    -sUSE_WEBGPU=1
   )
 else()
-  target_link_libraries(flecs_engine PRIVATE glfw cglm flecs_static)
+  target_link_libraries(flecs_engine PUBLIC glfw cglm flecs_static)
 
   if(APPLE)
     find_library(COCOA_FRAMEWORK Cocoa REQUIRED)
     find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
-    target_link_libraries(flecs_engine PRIVATE
+    target_link_libraries(flecs_engine PUBLIC
       ${COCOA_FRAMEWORK}
       ${QUARTZCORE_FRAMEWORK}
     )
   endif()
 endif()
+
+add_subdirectory(projects/flecs)
