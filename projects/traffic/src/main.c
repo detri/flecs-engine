@@ -98,7 +98,7 @@ static void trafficPopulateLanes(ecs_world_t *world) {
             ecs_add_pair(world, car, EcsIsA, prefab);
             ecs_set(world, car, FlecsPosition3, {0, 0, 0});
             ecs_set(world, car, FlecsRotation3, {0, 0, 0});
-            ecs_set(world, car, FlecsScale3, {1.5f, 1.5f, 1.5f});
+            ecs_set(world, car, FlecsScale3, {1.0f, 1.0f, 1.0f});
 
             float position = randf(20);
             trafficCars_addCarToLane(world, lane, car,

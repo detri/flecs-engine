@@ -21,9 +21,11 @@ ECS_DECLARE(TrafficRoadRoot);
 
 #define TRAFFIC_CAR_VISUAL_SCALE 3.0f
 
+#define TRAFFIC_LANE_OFFSET_FRAC (1.0f / 3.0f)
+
 static const float TrafficAccelerationForce = 1.5f;
-static const float TrafficBreakForce = 5.0f;
-static const float TrafficHardBreakForce = 12.0f;
+static const float TrafficBreakForce = 6.0f;
+static const float TrafficHardBreakForce = 15.0f;
 static const uint8_t TrafficMaxWaitCount = 60;
 static const float TrafficCarMass = 10.0f;
 static const float TrafficCarLength = 3.0f;
@@ -212,34 +214,36 @@ static void trafficCars_createLanesForRoad(
     ecs_entity_t left = ecs_new_w_pair(world, EcsChildOf, e);
     ecs_entity_t right = ecs_new_w_pair(world, EcsChildOf, e);
 
+    float lane_off = r->lane_width * TRAFFIC_LANE_OFFSET_FRAC;
+
     if (!r->corner) {
         ecs_set(world, left, TrafficLane,
             {r->length, r->lane_width, r->max_speed, 0, e});
-        ecs_set(world, left, FlecsPosition3, {0, 0, r->lane_width / 2});
+        ecs_set(world, left, FlecsPosition3, {0, 0, lane_off});
         ecs_set(world, left, FlecsRotation3, {0, (float)GLM_PI, 0});
 
         ecs_set(world, right, TrafficLane,
             {r->length, r->lane_width, r->max_speed, 0, e});
-        ecs_set(world, right, FlecsPosition3, {0, 0, -r->lane_width / 2});
+        ecs_set(world, right, FlecsPosition3, {0, 0, -lane_off});
     } else {
-        float left_radius = r->lane_width * 1.5f;
+        float left_radius = r->lane_width + lane_off;
         float left_speed = left_radius / 50.0f;
         if (left_speed > r->max_speed) left_speed = r->max_speed;
 
         ecs_set(world, left, TrafficLane,
             {r->length, r->lane_width, left_speed, 0, e});
         ecs_set(world, left, FlecsPosition3,
-            {r->lane_width / 2, 0, r->lane_width / 2});
+            {lane_off, 0, lane_off});
         ecs_set(world, left, TrafficCorner, {left_radius, true});
 
-        float right_radius = r->lane_width / 2.0f;
+        float right_radius = r->lane_width - lane_off;
         float right_speed = right_radius / 30.0f;
         if (right_speed > r->max_speed) right_speed = r->max_speed;
 
         ecs_set(world, right, TrafficLane,
             {r->length, r->lane_width, right_speed, 0, e});
         ecs_set(world, right, FlecsPosition3,
-            {-r->lane_width / 2, 0, -r->lane_width / 2});
+            {-lane_off, 0, -lane_off});
         ecs_set(world, right, TrafficCorner, {right_radius, false});
     }
 
@@ -906,7 +910,7 @@ static void trafficCars_updateCarEntities(ecs_iter_t *it) {
             if (!e || !ecs_is_alive(world, e)) continue;
             const TrafficCar *car = &cars->cars[i];
 
-            vec3 local_pos = {0.0f, 0.5f, 0.0f};
+            vec3 local_pos = {0.0f, 0.0f, 0.0f};
             float yaw = 0;
 
             if (!c) {

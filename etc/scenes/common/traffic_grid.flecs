@@ -11,7 +11,7 @@ const x_road_length: 27
 const z_road_length: 18
 
 const lane_width: 3
-const max_speed: 0.2
+const max_speed: 0.3
 const grid_y: 1
 
 for x in 0..grid_size {

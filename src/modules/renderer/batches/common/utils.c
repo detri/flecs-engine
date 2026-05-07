@@ -673,7 +673,22 @@ void flecsEngine_batch_uploadStatic(
     WGPUQueue queue = engine->queue;
     bool owns_material = (buf->flags & FLECS_BATCH_OWNS_MATERIAL) != 0;
 
-    if (bb->needs_full_upload) {
+    int32_t total_changed = 0;
+    if (!bb->needs_full_upload) {
+        for (int32_t g = 0; g < group_count; g ++) {
+            total_changed += ecs_vec_count(&groups[g]->changed_slots);
+        }
+    }
+
+    /* When a large fraction of slots changed, the per-slot path issues many
+     * small wgpuQueueWriteBuffer calls (3-4 per slot), each of which has
+     * non-trivial CPU overhead. In that regime a single full-buffer upload
+     * per buffer is dramatically cheaper. */
+    int32_t full_threshold = bb->count / 4;
+    if (full_threshold < 16) full_threshold = 16;
+    bool do_full = bb->needs_full_upload || total_changed >= full_threshold;
+
+    if (do_full) {
         int32_t n = bb->count;
         wgpuQueueWriteBuffer(queue, bb->gpu_transforms, 0,
             bb->cpu_transforms, (uint64_t)n * sizeof(FlecsGpuTransform));
