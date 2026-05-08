@@ -10,6 +10,7 @@ ECS_COMPONENT_DECLARE(FlecsRotation3);
 ECS_COMPONENT_DECLARE(FlecsScale3);
 ECS_COMPONENT_DECLARE(FlecsLookAt);
 ECS_TAG_DECLARE(FlecsDynamicTransform);
+ECS_TAG_DECLARE(FlecsManualTransform);
 
 typedef struct {
     ecs_query_t *q_childof;
@@ -286,6 +287,7 @@ void FlecsEngineTransform3Import(
     ECS_META_COMPONENT(world, FlecsWorldTransform3);
     ECS_META_COMPONENT(world, FlecsAABB);
     ECS_TAG_DEFINE(world, FlecsDynamicTransform);
+    ECS_TAG_DEFINE(world, FlecsManualTransform);
 
     flecsEngine_registerVec3Type(world, ecs_id(FlecsPosition3));
     flecsEngine_registerVec3Type(world, ecs_id(FlecsRotation3));
@@ -324,6 +326,9 @@ void FlecsEngineTransform3Import(
             .oper = EcsNot
         }, {
             .id = ecs_id(FlecsDynamicTransform),
+        }, {
+            .id = ecs_id(FlecsManualTransform),
+            .oper = EcsNot
         }},
         .cache_kind = EcsQueryCacheAuto
     };
@@ -345,10 +350,13 @@ void FlecsEngineTransform3Import(
             .inout = EcsIn,
             .oper = EcsOptional
         }, {
-            .id = ecs_id(EcsParent), 
+            .id = ecs_id(EcsParent),
             .inout = EcsIn
         }, {
             .id = ecs_id(FlecsDynamicTransform),
+        }, {
+            .id = ecs_id(FlecsManualTransform),
+            .oper = EcsNot
         }},
         .group_by = EcsParentDepth,
         .cache_kind = EcsQueryCacheAuto
@@ -381,7 +389,8 @@ void FlecsEngineTransform3Import(
         .entity = ecs_entity(world, { .name = "Transform3OnSetPosition" }),
         .query.terms = {
             { .id = ecs_id(FlecsPosition3), .src.id = EcsSelf },
-            { .id = FlecsDynamicTransform, .oper = EcsNot }
+            { .id = FlecsDynamicTransform, .oper = EcsNot },
+            { .id = FlecsManualTransform, .oper = EcsNot }
         },
         .events = { EcsOnSet },
         .yield_existing = true,
@@ -392,7 +401,8 @@ void FlecsEngineTransform3Import(
         .entity = ecs_entity(world, { .name = "Transform3OnSetRotation" }),
         .query.terms = {
             { .id = ecs_id(FlecsRotation3), .src.id = EcsSelf },
-            { .id = FlecsDynamicTransform, .oper = EcsNot }
+            { .id = FlecsDynamicTransform, .oper = EcsNot },
+            { .id = FlecsManualTransform, .oper = EcsNot }
         },
         .events = { EcsOnSet },
         .yield_existing = true,
@@ -403,7 +413,8 @@ void FlecsEngineTransform3Import(
         .entity = ecs_entity(world, { .name = "Transform3OnSetScale" }),
         .query.terms = {
             { .id = ecs_id(FlecsScale3), .src.id = EcsSelf },
-            { .id = FlecsDynamicTransform, .oper = EcsNot }
+            { .id = FlecsDynamicTransform, .oper = EcsNot },
+            { .id = FlecsManualTransform, .oper = EcsNot }
         },
         .events = { EcsOnSet },
         .yield_existing = true,

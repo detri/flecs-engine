@@ -21,8 +21,14 @@ prefab tree_large {
 prefab fence {
   Gltf: {"etc/assets/kenney/city-kit-suburban/Models/GLB format/fence.glb"}
 }
-prefab path_stones {
+prefab path_stones_short {
+  Gltf: {"etc/assets/kenney/city-kit-suburban/Models/GLB format/path-stones-short.glb"}
+}
+prefab path_stones_long {
   Gltf: {"etc/assets/kenney/city-kit-suburban/Models/GLB format/path-stones-long.glb"}
+}
+prefab driveway_short {
+  Gltf: {"etc/assets/kenney/city-kit-suburban/Models/GLB format/driveway-short.glb"}
 }
 prefab driveway_long {
   Gltf: {"etc/assets/kenney/city-kit-suburban/Models/GLB format/driveway-long.glb"}

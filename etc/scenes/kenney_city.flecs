@@ -1,5 +1,5 @@
 include config/sky
-include common/kenney_city_template
+include templates/kenney_city
 include common/atmosphere_purple
 
 using flecs.engine.*
@@ -15,6 +15,6 @@ ground {
   Box: {10000, 1, 10000}
 }
 
-kenney.City city(60) {
+kenney.City city(30) {
   Position3: {y: 1}
 }
