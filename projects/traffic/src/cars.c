@@ -24,12 +24,13 @@ ECS_DECLARE(TrafficRoadRoot);
 
 uint8_t TrafficLightGreenTicks = 32;
 uint8_t TrafficLightOrangeTicks = 8;
-float TrafficAccelerationForce = 1.5f;
-float TrafficBreakForce = 5.0f;
-float TrafficHardBreakForce = 12.0f;
+float TrafficAccelerationForce = 1.0f;
+float TrafficBreakForce = 3.0f;
+float TrafficHardBreakForce = 20.0f;
 uint8_t TrafficMaxWaitCount = 60;
 float TrafficPlaceholderCarMass = 10.0f;
 float TrafficPlaceholderCarLength = 3.0f;
+float TrafficCarGap = 2.0f;
 
 static int LaneTick = 0;
 
@@ -46,22 +47,12 @@ static float trafficCars_minDistanceForSpeed(float s1) {
 
 static ecs_entity_t trafficCars_findNextLane(const TrafficIntersectionMovement *im) {
     int8_t turn = (int8_t)(rand() % 3);
-
-    if (!im->lanes[turn]) {
-        int i;
-        for (i = 1; i < 3; i ++) {
-            if (im->lanes[(turn + i) % 3]) {
-                break;
-            }
-        }
-        if (i == 3) {
-            ecs_err("intersection without lanes :(");
-        } else {
-            turn = (int8_t)((turn + i) % 3);
-        }
+    for (int i = 0; i < 3; i ++) {
+        int8_t idx = (int8_t)((turn + i) % 3);
+        if (im->lanes[idx]) return im->lanes[idx];
     }
-
-    return im->lanes[turn];
+    ecs_err("intersection without lanes :(");
+    return 0;
 }
 
 static float trafficCars_spaceInLane(
@@ -94,17 +85,13 @@ static bool trafficCars_carFitsInDestinationLane(
     ecs_entity_t next_lane,
     TrafficCar *car)
 {
-    float space = trafficCars_spaceInDestinationLane(world, next_lane);
-
     const TrafficLaneCars *cars = ecs_get(world, next_lane, TrafficLaneCars);
-    if (cars) {
-        for (int i = 0; i < cars->count; i ++) {
-            space -= cars->cars[i].length;
-        }
-        space -= cars->count * 2.0f;
+    if (cars && cars->count) {
+        return false;
     }
 
-    return space > car->length;
+    float space = trafficCars_spaceInDestinationLane(world, next_lane);
+    return space >= car->length + TrafficCarGap;
 }
 
 static void trafficCars_waitForLane(
@@ -154,32 +141,30 @@ void trafficCars_addCarToLane(
     if (cars->count) {
         TrafficCar *last_car = &cars->cars[cars->count - 1];
         if ((last_car->position - last_car->length) < position) {
-            ecs_err("adding car %u to lane would cause a crash!",
+            ecs_abort(ECS_INTERNAL_ERROR,
+                "adding car %u to lane would cause a crash!",
                 (uint32_t)car_entity);
-            position = 0;
-            speed = 0;
-            target_speed = 0;
         }
     }
 
-    TrafficCar *car = &cars->cars[cars->count];
-
-    car->position = position;
-    car->speed = speed;
-    car->target_speed = target_speed;
-    car->state = state;
-    car->eol_state = eol_state;
-    car->next_lane = out_lane;
-    car->mass = TrafficPlaceholderCarMass;
-    car->length = TrafficPlaceholderCarLength;
-    car->reservation = reservation;
+    cars->cars[cars->count] = (TrafficCar){
+        .position = position,
+        .speed = speed,
+        .target_speed = target_speed,
+        .state = state,
+        .eol_state = eol_state,
+        .next_lane = out_lane,
+        .mass = TrafficPlaceholderCarMass,
+        .length = TrafficPlaceholderCarLength,
+        .reservation = reservation,
+    };
 
     TrafficLaneCarEntities *car_entities = ecs_get_mut(
         world, out_lane, TrafficLaneCarEntities);
     car_entities->cars[cars->count] = car_entity;
 
     cars->count ++;
-    assert(cars->count < TRAFFIC_MAX_CARS_PER_LANE);
+    assert(cars->count <= TRAFFIC_MAX_CARS_PER_LANE);
 }
 
 ecs_entity_t trafficCars_roadFromLane(
@@ -243,12 +228,8 @@ static void trafficCars_setLaneTransform(ecs_iter_t *it) {
             const FlecsRotation3 *l_r = ecs_get(world, left, FlecsRotation3);
             const FlecsRotation3 *r_r = ecs_get(world, right, FlecsRotation3);
 
-            if (l_p) {
-                glm_translate_to(m_road->m, *(vec3*)l_p, l_lt->m);
-            }
-            if (r_p) {
-                glm_translate_to(m_road->m, *(vec3*)r_p, r_lt->m);
-            }
+            glm_translate_to(m_road->m, *(vec3*)l_p, l_lt->m);
+            glm_translate_to(m_road->m, *(vec3*)r_p, r_lt->m);
 
             if (l_r) {
                 glm_rotate(l_lt->m, l_r->x, (vec3){1.0f, 0.0f, 0.0f});
@@ -359,10 +340,10 @@ static void trafficCars_createRoad(ecs_iter_t *it) {
             rl->lanes[0] = left;
             rl->lanes[1] = right;
         }
-
-        ecs_enable(world, ConnectRoadsSys, true);
-        ecs_enable(world, SetLaneTransformSys, true);
     }
+
+    ecs_enable(world, ConnectRoadsSys, true);
+    ecs_enable(world, SetLaneTransformSys, true);
 }
 
 /* Helpers for connectIntersection */
@@ -451,6 +432,47 @@ static void trafficCars_setLaneNext(
 static void trafficCars_connectIntersection(ecs_iter_t *it) {
     ecs_world_t *world = it->world;
 
+    /* Per-incoming-direction wiring: which intersection lanes feed the three
+     * possible turns from this direction, and where the traffic light sits. */
+    struct entry {
+        TrafficDirection dir;
+        TrafficConnection conn[3];
+        int8_t lane[3];
+        int8_t light_x_sign;
+        int8_t light_z_sign;
+        float light_yaw;
+    };
+    static const struct entry entries[4] = {
+        { TrafficTop,
+          { TrafficTopToRight, TrafficTopToBottom, TrafficTopToLeft },
+          { 0, 0, 0 }, -1, +1, 0 },
+        { TrafficBottom,
+          { TrafficBottomToLeft, TrafficTopToBottom, TrafficBottomToRight },
+          { 0, 1, 0 }, +1, -1, (float)GLM_PI },
+        { TrafficLeft,
+          { TrafficTopToLeft, TrafficLeftToRight, TrafficBottomToLeft },
+          { 1, 0, 1 }, -1, -1, (float)(GLM_PI * 1.5) },
+        { TrafficRight,
+          { TrafficBottomToRight, TrafficLeftToRight, TrafficTopToRight },
+          { 1, 1, 1 }, +1, +1, (float)(GLM_PI * 0.5) },
+    };
+
+    /* Per-pair routing: for each road pair that has both ends, both lanes of
+     * the connecting movement are wired to their respective outgoing lanes. */
+    struct route {
+        TrafficDirection from;
+        TrafficDirection to;
+        TrafficConnection conn;
+    };
+    static const struct route routes[6] = {
+        { TrafficTop,    TrafficBottom, TrafficTopToBottom },
+        { TrafficLeft,   TrafficRight,  TrafficLeftToRight },
+        { TrafficTop,    TrafficRight,  TrafficTopToRight },
+        { TrafficTop,    TrafficLeft,   TrafficTopToLeft },
+        { TrafficBottom, TrafficRight,  TrafficBottomToRight },
+        { TrafficBottom, TrafficLeft,   TrafficBottomToLeft },
+    };
+
     while (ecs_iter_next(it)) {
         const TrafficIntersection *is = ecs_field(it, TrafficIntersection, 0);
         TrafficIntersectionRoads *irs = ecs_field(it, TrafficIntersectionRoads, 1);
@@ -463,163 +485,47 @@ static void trafficCars_connectIntersection(ecs_iter_t *it) {
             const FlecsPosition3 *p = &ps[row];
 
             float light_y = 2.5f, light_offset = 1.5f;
+            float light_dist = i->lane_width + light_offset;
 
-            /* Top */
-            if (trafficCars_iRoad(i, TrafficTop)) {
+            for (int d = 0; d < 4; d ++) {
+                const struct entry *en = &entries[d];
+                if (!trafficCars_iRoad(i, en->dir)) continue;
+
                 bool intersect;
-                ecs_entity_t mv = trafficCars_intersectionMovement(world, e, ir, TrafficTop,
-                    trafficCars_intersectionLane(world, ir, TrafficTopToRight, 0),
-                    trafficCars_intersectionLane(world, ir, TrafficTopToBottom, 0),
-                    trafficCars_intersectionLane(world, ir, TrafficTopToLeft, 0),
+                ecs_entity_t mv = trafficCars_intersectionMovement(
+                    world, e, ir, en->dir,
+                    trafficCars_intersectionLane(world, ir, en->conn[0], en->lane[0]),
+                    trafficCars_intersectionLane(world, ir, en->conn[1], en->lane[1]),
+                    trafficCars_intersectionLane(world, ir, en->conn[2], en->lane[2]),
                     &intersect);
-                ecs_entity_t in_lane = trafficCars_iRoadLane(world, i, TrafficTop, true);
+                ecs_entity_t in_lane = trafficCars_iRoadLane(world, i, en->dir, true);
                 trafficCars_setLaneNext(world, in_lane, mv);
 
-                if (intersect && in_lane) {
-                    TrafficLaneTrafficLight *ltl = ecs_ensure(
-                        world, in_lane, TrafficLaneTrafficLight);
-                    ecs_entity_t light = ecs_new(world);
-                    ecs_set(world, light, TrafficLight, {2});
-                    ecs_set(world, light, FlecsPosition3, {
-                        p->x - i->lane_width - light_offset,
-                        p->y + light_y,
-                        p->z + i->lane_width + light_offset
-                    });
-                    ltl->light = light;
-                }
+                if (!intersect || !in_lane) continue;
+
+                TrafficLaneTrafficLight *ltl = ecs_ensure(
+                    world, in_lane, TrafficLaneTrafficLight);
+                ecs_entity_t light = ecs_new(world);
+                ecs_set(world, light, TrafficLight, {2});
+                ecs_set(world, light, FlecsPosition3, {
+                    p->x + en->light_x_sign * light_dist,
+                    p->y + light_y,
+                    p->z + en->light_z_sign * light_dist
+                });
+                ecs_set(world, light, FlecsRotation3, {0, en->light_yaw, 0});
+                ltl->light = light;
             }
 
-            /* Bottom */
-            if (trafficCars_iRoad(i, TrafficBottom)) {
-                bool intersect;
-                ecs_entity_t mv = trafficCars_intersectionMovement(world, e, ir, TrafficBottom,
-                    trafficCars_intersectionLane(world, ir, TrafficBottomToLeft, 0),
-                    trafficCars_intersectionLane(world, ir, TrafficTopToBottom, 1),
-                    trafficCars_intersectionLane(world, ir, TrafficBottomToRight, 0),
-                    &intersect);
-                ecs_entity_t in_lane = trafficCars_iRoadLane(world, i, TrafficBottom, true);
-                trafficCars_setLaneNext(world, in_lane, mv);
-
-                if (intersect && in_lane) {
-                    TrafficLaneTrafficLight *ltl = ecs_ensure(
-                        world, in_lane, TrafficLaneTrafficLight);
-                    ecs_entity_t light = ecs_new(world);
-                    ecs_set(world, light, TrafficLight, {2});
-                    ecs_set(world, light, FlecsPosition3, {
-                        p->x + i->lane_width + light_offset,
-                        p->y + light_y,
-                        p->z - i->lane_width - light_offset
-                    });
-                    ecs_set(world, light, FlecsRotation3, {0, (float)GLM_PI, 0});
-                    ltl->light = light;
-                }
-            }
-
-            /* Left */
-            if (trafficCars_iRoad(i, TrafficLeft)) {
-                bool intersect;
-                ecs_entity_t mv = trafficCars_intersectionMovement(world, e, ir, TrafficLeft,
-                    trafficCars_intersectionLane(world, ir, TrafficTopToLeft, 1),
-                    trafficCars_intersectionLane(world, ir, TrafficLeftToRight, 0),
-                    trafficCars_intersectionLane(world, ir, TrafficBottomToLeft, 1),
-                    &intersect);
-                ecs_entity_t in_lane = trafficCars_iRoadLane(world, i, TrafficLeft, true);
-                trafficCars_setLaneNext(world, in_lane, mv);
-
-                if (intersect && in_lane) {
-                    TrafficLaneTrafficLight *ltl = ecs_ensure(
-                        world, in_lane, TrafficLaneTrafficLight);
-                    ecs_entity_t light = ecs_new(world);
-                    ecs_set(world, light, TrafficLight, {2});
-                    ecs_set(world, light, FlecsPosition3, {
-                        p->x - i->lane_width - light_offset,
-                        p->y + light_y,
-                        p->z - i->lane_width - light_offset
-                    });
-                    ecs_set(world, light, FlecsRotation3, {0, (float)(GLM_PI * 1.5), 0});
-                    ltl->light = light;
-                }
-            }
-
-            /* Right */
-            if (trafficCars_iRoad(i, TrafficRight)) {
-                bool intersect;
-                ecs_entity_t mv = trafficCars_intersectionMovement(world, e, ir, TrafficRight,
-                    trafficCars_intersectionLane(world, ir, TrafficBottomToRight, 1),
-                    trafficCars_intersectionLane(world, ir, TrafficLeftToRight, 1),
-                    trafficCars_intersectionLane(world, ir, TrafficTopToRight, 1),
-                    &intersect);
-                ecs_entity_t in_lane = trafficCars_iRoadLane(world, i, TrafficRight, true);
-                trafficCars_setLaneNext(world, in_lane, mv);
-
-                if (intersect && in_lane) {
-                    TrafficLaneTrafficLight *ltl = ecs_ensure(
-                        world, in_lane, TrafficLaneTrafficLight);
-                    ecs_entity_t light = ecs_new(world);
-                    ecs_set(world, light, TrafficLight, {2});
-                    ecs_set(world, light, FlecsPosition3, {
-                        p->x + i->lane_width + light_offset,
-                        p->y + light_y,
-                        p->z + i->lane_width + light_offset
-                    });
-                    ecs_set(world, light, FlecsRotation3, {0, (float)(GLM_PI * 0.5), 0});
-                    ltl->light = light;
-                }
-            }
-
-            /* Connect movements to outgoing lanes */
-            if (trafficCars_iRoad(i, TrafficTop) && trafficCars_iRoad(i, TrafficBottom)) {
+            for (int r = 0; r < 6; r ++) {
+                const struct route *rt = &routes[r];
+                if (!trafficCars_iRoad(i, rt->from) ||
+                    !trafficCars_iRoad(i, rt->to)) continue;
                 trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficTopToBottom, 0),
-                    trafficCars_iRoadLane(world, i, TrafficBottom, false));
+                    trafficCars_intersectionLane(world, ir, rt->conn, 0),
+                    trafficCars_iRoadLane(world, i, rt->to, false));
                 trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficTopToBottom, 1),
-                    trafficCars_iRoadLane(world, i, TrafficTop, false));
-            }
-
-            if (trafficCars_iRoad(i, TrafficLeft) && trafficCars_iRoad(i, TrafficRight)) {
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficLeftToRight, 0),
-                    trafficCars_iRoadLane(world, i, TrafficRight, false));
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficLeftToRight, 1),
-                    trafficCars_iRoadLane(world, i, TrafficLeft, false));
-            }
-
-            if (trafficCars_iRoad(i, TrafficTop) && trafficCars_iRoad(i, TrafficRight)) {
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficTopToRight, 0),
-                    trafficCars_iRoadLane(world, i, TrafficRight, false));
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficTopToRight, 1),
-                    trafficCars_iRoadLane(world, i, TrafficTop, false));
-            }
-
-            if (trafficCars_iRoad(i, TrafficTop) && trafficCars_iRoad(i, TrafficLeft)) {
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficTopToLeft, 0),
-                    trafficCars_iRoadLane(world, i, TrafficLeft, false));
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficTopToLeft, 1),
-                    trafficCars_iRoadLane(world, i, TrafficTop, false));
-            }
-
-            if (trafficCars_iRoad(i, TrafficBottom) && trafficCars_iRoad(i, TrafficRight)) {
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficBottomToRight, 0),
-                    trafficCars_iRoadLane(world, i, TrafficRight, false));
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficBottomToRight, 1),
-                    trafficCars_iRoadLane(world, i, TrafficBottom, false));
-            }
-
-            if (trafficCars_iRoad(i, TrafficBottom) && trafficCars_iRoad(i, TrafficLeft)) {
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficBottomToLeft, 0),
-                    trafficCars_iRoadLane(world, i, TrafficLeft, false));
-                trafficCars_setLaneNext(world,
-                    trafficCars_intersectionLane(world, ir, TrafficBottomToLeft, 1),
-                    trafficCars_iRoadLane(world, i, TrafficBottom, false));
+                    trafficCars_intersectionLane(world, ir, rt->conn, 1),
+                    trafficCars_iRoadLane(world, i, rt->from, false));
             }
         }
     }
@@ -633,6 +539,28 @@ static void trafficCars_createIntersection(ecs_iter_t *it) {
     const TrafficIntersection *iss = ecs_field(it, TrafficIntersection, 0);
     TrafficIntersectionRoads *irs = ecs_field(it, TrafficIntersectionRoads, 1);
 
+    struct spec {
+        TrafficDirection a, b;
+        TrafficConnection conn;
+        bool corner;
+        bool invert_corner;
+        float yaw;
+    };
+    static const struct spec specs[6] = {
+        { TrafficTop,    TrafficBottom, TrafficTopToBottom,
+          false, false, (float)(GLM_PI * 1.5) },
+        { TrafficLeft,   TrafficRight,  TrafficLeftToRight,
+          false, false, (float)GLM_PI },
+        { TrafficLeft,   TrafficTop,    TrafficTopToLeft,
+          true,  true,  (float)(GLM_PI / 2) },
+        { TrafficRight,  TrafficTop,    TrafficTopToRight,
+          true,  false, (float)GLM_PI },
+        { TrafficRight,  TrafficBottom, TrafficBottomToRight,
+          true,  true,  (float)(GLM_PI * 1.5) },
+        { TrafficLeft,   TrafficBottom, TrafficBottomToLeft,
+          true,  false, 0 },
+    };
+
     for (int row = 0; row < it->count; row ++) {
         ecs_entity_t e = it->entities[row];
         const TrafficIntersection *i = &iss[row];
@@ -640,63 +568,17 @@ static void trafficCars_createIntersection(ecs_iter_t *it) {
 
         ecs_delete_with(world, ecs_pair(EcsChildOf, e));
 
-        /* top <-> down */
-        if (i->roads[TrafficTop].road && i->roads[TrafficBottom].road) {
+        for (int s = 0; s < 6; s ++) {
+            const struct spec *sp = &specs[s];
+            if (!i->roads[sp->a].road || !i->roads[sp->b].road) continue;
+            float length = sp->corner ? i->lane_width : i->lane_width * 2;
             ecs_entity_t road = ecs_new_w_pair(world, EcsChildOf, e);
             ecs_set(world, road, TrafficRoad,
-                { i->lane_width * 2, i->lane_width, i->max_speed, false });
+                { length, i->lane_width, i->max_speed,
+                  sp->corner, sp->invert_corner });
             ecs_set(world, road, FlecsPosition3, {0, 0, 0});
-            ecs_set(world, road, FlecsRotation3, {0, (float)(GLM_PI * 1.5), 0});
-            ir->roads[TrafficTopToBottom] = road;
-        }
-
-        /* left <-> right */
-        if (i->roads[TrafficLeft].road && i->roads[TrafficRight].road) {
-            ecs_entity_t road = ecs_new_w_pair(world, EcsChildOf, e);
-            ecs_set(world, road, TrafficRoad,
-                { i->lane_width * 2, i->lane_width, i->max_speed, false });
-            ecs_set(world, road, FlecsPosition3, {0, 0, 0});
-            ecs_set(world, road, FlecsRotation3, {0, (float)GLM_PI, 0});
-            ir->roads[TrafficLeftToRight] = road;
-        }
-
-        /* top <-> left */
-        if (i->roads[TrafficLeft].road && i->roads[TrafficTop].road) {
-            ecs_entity_t road = ecs_new_w_pair(world, EcsChildOf, e);
-            ecs_set(world, road, TrafficRoad,
-                { i->lane_width, i->lane_width, i->max_speed, true, true });
-            ecs_set(world, road, FlecsPosition3, {0, 0, 0});
-            ecs_set(world, road, FlecsRotation3, {0, (float)(GLM_PI / 2), 0});
-            ir->roads[TrafficTopToLeft] = road;
-        }
-
-        /* top <-> right */
-        if (i->roads[TrafficRight].road && i->roads[TrafficTop].road) {
-            ecs_entity_t road = ecs_new_w_pair(world, EcsChildOf, e);
-            ecs_set(world, road, TrafficRoad,
-                { i->lane_width, i->lane_width, i->max_speed, true });
-            ecs_set(world, road, FlecsPosition3, {0, 0, 0});
-            ecs_set(world, road, FlecsRotation3, {0, (float)GLM_PI, 0});
-            ir->roads[TrafficTopToRight] = road;
-        }
-
-        /* bottom <-> right */
-        if (i->roads[TrafficRight].road && i->roads[TrafficBottom].road) {
-            ecs_entity_t road = ecs_new_w_pair(world, EcsChildOf, e);
-            ecs_set(world, road, TrafficRoad,
-                { i->lane_width, i->lane_width, i->max_speed, true, true });
-            ecs_set(world, road, FlecsPosition3, {0, 0, 0});
-            ecs_set(world, road, FlecsRotation3, {0, (float)(GLM_PI * 1.5), 0});
-            ir->roads[TrafficBottomToRight] = road;
-        }
-
-        /* bottom <-> left */
-        if (i->roads[TrafficLeft].road && i->roads[TrafficBottom].road) {
-            ecs_entity_t road = ecs_new_w_pair(world, EcsChildOf, e);
-            ecs_set(world, road, TrafficRoad,
-                { i->lane_width, i->lane_width, i->max_speed, true });
-            ecs_set(world, road, FlecsPosition3, {0, 0, 0});
-            ir->roads[TrafficBottomToLeft] = road;
+            ecs_set(world, road, FlecsRotation3, {0, sp->yaw, 0});
+            ir->roads[sp->conn] = road;
         }
 
         ecs_enable(world, ConnectIntersectionSys, true);
@@ -719,6 +601,17 @@ static void trafficCars_laneProgressCars(ecs_iter_t *it) {
         for (int j = 0; j < cars[row].count; j ++) {
             cars[row].cars[j].position += cars[row].cars[j].speed;
         }
+        for (int j = 1; j < cars[row].count; j ++) {
+            TrafficCar *c = &cars[row].cars[j];
+            TrafficCar *front = &cars[row].cars[j - 1];
+            float max_pos = front->position - front->length;
+            if (c->position > max_pos) {
+                c->position = max_pos;
+                if (c->speed > front->speed) {
+                    c->speed = front->speed;
+                }
+            }
+        }
     }
 }
 
@@ -739,13 +632,11 @@ static void trafficCars_setTargetSpeed(
     float target_speed = lane_max_speed;
 
     if (distance < 0) {
-        ecs_err("crash happened! (distance = %.2f, position = %.2f, "
+        ecs_abort(ECS_INTERNAL_ERROR,
+            "crash happened! (distance = %.2f, position = %.2f, "
             "next_position = %.2f, speed = %.2f, target_speed = %.2f)",
             distance, car->position, next_position,
             car->speed, car->target_speed);
-        car->speed = 0;
-        car->state = TrafficCarStateCrashed;
-        return;
     } else if (distance < min_d) {
         if (next_state == TrafficCarStateBreaking ||
             next_state == TrafficCarStateBreakingHard)
@@ -814,11 +705,15 @@ static void trafficCars_laneCarSetTargetSpeed(ecs_iter_t *it) {
         }
 
         if (next_car) {
-            float next_position = next_car->position - next_car->length / 2.0f;
+            float next_position = next_car->position - next_car->length;
             next_position += next_position_offset;
             next_position += lane->length;
-            trafficCars_setTargetSpeed(car, next_position,
-                next_car->speed, next_car->state, lane->max_speed);
+            if (next_position < car->position) {
+                car->target_speed = 0;
+            } else {
+                trafficCars_setTargetSpeed(car, next_position,
+                    next_car->speed, next_car->state, lane->max_speed);
+            }
         } else {
             trafficCars_setTargetSpeed(car, 1000.0f * 1000.0f, 1000.0f * 1000.0f,
                 TrafficCarStateDriving, lane->max_speed);
@@ -1140,8 +1035,6 @@ static void trafficCars_laneUpdateCarEntities(ecs_iter_t *it) {
     FlecsWorldTransform3 *lane_xforms = ecs_field(it, FlecsWorldTransform3, 3);
     const TrafficCorner *corner = ecs_field(it, TrafficCorner, 4);
 
-    bool is_dynamic = ecs_table_has_id(it->real_world, it->table, FlecsDynamicTransform);
-
     for (int row = 0; row < it->count; row ++) {
         const TrafficLane *lane = &lanes[row];
         const TrafficLaneCars *cars = &lane_cars[row];
@@ -1176,26 +1069,15 @@ static void trafficCars_laneUpdateCarEntities(ecs_iter_t *it) {
             float lane_yaw = atan2f(transform->m[2][0], transform->m[2][2]);
             float yaw_offset = (c && c->invert_direction) ? (t - (float)GLM_PI) : t;
 
-            // if (is_dynamic) {
-                {
-                    FlecsPosition3 *ptr = ecs_get_mut(world, e, FlecsPosition3);
-                    ptr->x = world_pos[0];
-                    ptr->y = world_pos[1];
-                    ptr->z = world_pos[2];
-                }
-                {
-                    FlecsRotation3 *ptr = ecs_get_mut(world, e, FlecsRotation3);
-                    ptr->x = 0;
-                    ptr->y = lane_yaw + yaw_offset + (float)(GLM_PI * 0.5f);
-                    ptr->z = 0;
-                }
+            FlecsPosition3 *pos = ecs_get_mut(world, e, FlecsPosition3);
+            pos->x = world_pos[0];
+            pos->y = world_pos[1];
+            pos->z = world_pos[2];
 
-            // } else {
-            //     ecs_set(world, e, FlecsPosition3, {world_pos[0], world_pos[1], world_pos[2]});
-            //     ecs_set(world, e, FlecsRotation3,
-            //         {0, lane_yaw + yaw_offset + (float)(GLM_PI * 0.5f), 0});
-            //     ecs_set(world, e, FlecsScale3, {1.0f, 1.0f, 1.0f});
-            // }
+            FlecsRotation3 *rot = ecs_get_mut(world, e, FlecsRotation3);
+            rot->x = 0;
+            rot->y = lane_yaw + yaw_offset + (float)(GLM_PI * 0.5f);
+            rot->z = 0;
 
 #ifndef NDEBUG
             ecs_set_ptr(world, e, TrafficCar, car);
@@ -1210,8 +1092,6 @@ static void trafficCars_laneMoveCarsToNextLane(ecs_iter_t *it) {
     TrafficLane *lanes = ecs_field(it, TrafficLane, 0);
     TrafficLaneCars *lane_cars = ecs_field(it, TrafficLaneCars, 1);
     TrafficLaneCarEntities *lane_ents = ecs_field(it, TrafficLaneCarEntities, 2);
-    TrafficLaneTrafficLight *ltls = ecs_field(it, TrafficLaneTrafficLight, 3);
-    (void)ltls;
 
     for (int row = 0; row < it->count; row ++) {
         TrafficLane *lane = &lanes[row];
@@ -1226,10 +1106,42 @@ static void trafficCars_laneMoveCarsToNextLane(ecs_iter_t *it) {
                 break;
             }
 
-            if (car->eol_state == TrafficCarEolWaitForIntersection ||
-                car->eol_state == TrafficCarEolReserveIntersection ||
-                car->eol_state == TrafficCarEolWaitForProtectedIntersection)
-            {
+            bool block = false;
+            switch (car->eol_state) {
+            case TrafficCarEolWaitForIntersection:
+            case TrafficCarEolReserveIntersection:
+            case TrafficCarEolWaitForProtectedIntersection:
+                block = true;
+                break;
+            case TrafficCarEolMoveOnIntersection:
+            case TrafficCarEolMoveOnProtectedIntersection:
+                if (!trafficCars_carFitsInDestinationLane(
+                        world, car->next_lane, car))
+                {
+                    car->eol_state =
+                        (car->eol_state == TrafficCarEolMoveOnIntersection)
+                            ? TrafficCarEolWaitForIntersection
+                            : TrafficCarEolWaitForProtectedIntersection;
+                    block = true;
+                }
+                break;
+            default:
+                if (lane->next) {
+                    const TrafficLaneCars *next_cars =
+                        ecs_get(world, lane->next, TrafficLaneCars);
+                    if (next_cars && next_cars->count) {
+                        const TrafficCar *last =
+                            &next_cars->cars[next_cars->count - 1];
+                        float new_pos = car->position - lane->length;
+                        if ((last->position - last->length) < new_pos) {
+                            block = true;
+                        }
+                    }
+                }
+                break;
+            }
+
+            if (block) {
                 car->position = lane->length;
                 car->speed = 0;
                 car->target_speed = 0;
@@ -1467,24 +1379,14 @@ void TrafficCarsImport(ecs_world_t *world) {
     TrafficRoadRoot = ecs_entity(world, { .name = "roads" });
     ecs_set_scope(world, prev_scope);
 
-    /* With hooks (mirroring the C++ port).  Cars don't get
-     * FlecsManualTransform: their Position3 is set every frame from the lane
-     * transform so the standard OnSet observer can propagate the result to
-     * any prefab-instantiated children (e.g. Gltf meshes). */
-    ecs_add_pair(world, ecs_id(TrafficCar), EcsWith,
-        ecs_id(FlecsPosition3));
-    ecs_add_pair(world, ecs_id(TrafficCar), EcsWith,
-        ecs_id(FlecsRotation3));
-    ecs_add_pair(world, ecs_id(TrafficCar), EcsWith,
-        ecs_id(FlecsScale3));
-
+    /* With relationships */
+    ecs_add_pair(world, ecs_id(TrafficCar), EcsWith, ecs_id(FlecsPosition3));
+    ecs_add_pair(world, ecs_id(TrafficCar), EcsWith, ecs_id(FlecsRotation3));
+    ecs_add_pair(world, ecs_id(TrafficCar), EcsWith, ecs_id(FlecsScale3));
     ecs_add_pair(world, ecs_id(TrafficLane), EcsWith, ecs_id(TrafficLaneCars));
     ecs_add_pair(world, ecs_id(TrafficLane), EcsWith, ecs_id(TrafficLaneCarEntities));
-
     ecs_add_pair(world, ecs_id(TrafficRoad), EcsWith, ecs_id(TrafficRoadLanes));
-
-    ecs_add_pair(world, ecs_id(TrafficIntersection), EcsWith,
-        ecs_id(TrafficIntersectionRoads));
+    ecs_add_pair(world, ecs_id(TrafficIntersection), EcsWith, ecs_id(TrafficIntersectionRoads));
 
     /* Default zero-init for components with non-trivial layouts. */
     ecs_set_hooks(world, TrafficLaneCars, { .ctor = flecs_default_ctor });
@@ -1545,7 +1447,6 @@ void TrafficCarsImport(ecs_world_t *world) {
         .run = trafficCars_setLaneTransform
     });
 
-    /* OnUpdate one-shot: ConnectRoads. */
     ConnectRoadsSys = ecs_system(world, {
         .entity = ecs_entity(world, { .name = "ConnectRoads" }),
         .query.terms = {
@@ -1557,7 +1458,6 @@ void TrafficCarsImport(ecs_world_t *world) {
         .run = trafficCars_connectRoads
     });
 
-    /* OnUpdate one-shot: ConnectIntersections. */
     ConnectIntersectionSys = ecs_system(world, {
         .entity = ecs_entity(world, { .name = "ConnectIntersections" }),
         .query.terms = {
@@ -1569,8 +1469,6 @@ void TrafficCarsImport(ecs_world_t *world) {
         .immediate = true,
         .run = trafficCars_connectIntersection
     });
-
-    /* OnUpdate per-frame systems, in original execution order. */
 
     ecs_system(world, {
         .entity = ecs_entity(world, {
@@ -1683,9 +1581,7 @@ void TrafficCarsImport(ecs_world_t *world) {
         .query.terms = {
             { .id = ecs_id(TrafficLane), .inout = EcsInOut },
             { .id = ecs_id(TrafficLaneCars), .inout = EcsInOut },
-            { .id = ecs_id(TrafficLaneCarEntities), .inout = EcsInOut },
-            { .id = ecs_id(TrafficLaneTrafficLight), .inout = EcsIn,
-              .oper = EcsOptional }
+            { .id = ecs_id(TrafficLaneCarEntities), .inout = EcsInOut }
         },
         .callback = trafficCars_laneMoveCarsToNextLane
     });
