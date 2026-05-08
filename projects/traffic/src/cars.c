@@ -29,7 +29,7 @@ float TrafficBreakForce = 5.0f;
 float TrafficHardBreakForce = 12.0f;
 uint8_t TrafficMaxWaitCount = 60;
 float TrafficPlaceholderCarMass = 10.0f;
-float TrafficPlaceholderCarLength = 1.0f;
+float TrafficPlaceholderCarLength = 3.0f;
 
 static int LaneTick = 0;
 

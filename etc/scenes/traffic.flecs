@@ -15,7 +15,7 @@ ground {
   Box: {10000, 1, 10000}
 }
 
-kenney.City city(40) {
+kenney.City city(30) {
     Position3: {y: 1}
 }
 

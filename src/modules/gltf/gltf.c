@@ -613,7 +613,8 @@ static ecs_entity_t flecsEngine_gltf_getNodeEntity(
     ecs_entity_t *node_entities,
     const cgltf_data *data,
     const cgltf_node *node,
-    ecs_entity_t nodes_parent)
+    ecs_entity_t nodes_parent,
+    bool use_parent_storage)
 {
     ptrdiff_t node_idx = node - data->nodes;
     if (node_entities[node_idx]) {
@@ -623,12 +624,20 @@ static ecs_entity_t flecsEngine_gltf_getNodeEntity(
     ecs_entity_t parent;
     if (node->parent) {
         parent = flecsEngine_gltf_getNodeEntity(
-            world, node_entities, data, node->parent, nodes_parent);
+            world, node_entities, data, node->parent, nodes_parent,
+            use_parent_storage);
     } else {
         parent = nodes_parent;
     }
 
-    ecs_entity_t e = ecs_entity(world, { .parent = parent });
+    ecs_entity_t e;
+    if (use_parent_storage) {
+        e = ecs_new(world);
+        ecs_set(world, e, EcsParent, {.value = parent});
+    } else {
+        e = ecs_entity(world, { .parent = parent });
+    }
+
     if (node->name) {
         ecs_doc_set_name(world, e, node->name);
     }
@@ -857,10 +866,13 @@ static void flecsEngine_gltf_load(
                 ecs_entity_t, (int32_t)data->nodes_count);
         }
 
+        bool use_parent_storage = ecs_has_id(world, root, EcsPrefab);
+
         /* Create all nodes with hierarchy + transforms under root */
         for (cgltf_size ni = 0; ni < data->nodes_count; ni++) {
             flecsEngine_gltf_getNodeEntity(
-                world, node_entities, data, &data->nodes[ni], root);
+                world, node_entities, data, &data->nodes[ni], root,
+                use_parent_storage);
         }
 
         /* Create deduplicated mesh prefabs and link to node entities */
@@ -896,8 +908,15 @@ static void flecsEngine_gltf_load(
                 if (tri_count == 1) {
                     ecs_add_pair(world, node_e, EcsIsA, mesh_prefab);
                 } else {
-                    ecs_entity_t prim_e = ecs_entity(world,
-                        { .parent = node_e });
+                    ecs_entity_t prim_e;
+                    if (use_parent_storage) {
+                        prim_e = ecs_new(world);
+                        ecs_set(world, prim_e, EcsParent,
+                            {.value = node_e});
+                    } else {
+                        prim_e = ecs_entity(world,
+                            { .parent = node_e });
+                    }
                     ecs_set(world, prim_e, FlecsPosition3, {0, 0, 0});
                     ecs_add_pair(world, prim_e, EcsIsA, mesh_prefab);
                 }

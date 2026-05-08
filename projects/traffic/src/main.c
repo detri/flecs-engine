@@ -164,7 +164,7 @@ int main(int argc, char *argv[]) {
                 ecs_entity_t car = ecs_new_w_pair(world, EcsChildOf, TrafficCarRoot);
                 ecs_add(world, car, FlecsDynamicTransform);
                 ecs_set(world, car, TrafficCar, {0});
-                ecs_set(world, car, FlecsScale3, {1.0f, 1.0f, 1.0f});
+                ecs_set(world, car, FlecsScale3, {1.2f, 1.2f, 1.2f});
 
                 if (resolved_prefabs) {
                     ecs_add_pair(world, car, EcsIsA,

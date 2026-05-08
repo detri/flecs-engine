@@ -2,7 +2,7 @@ using flecs.engine.*
 using flecs.script
 using traffic
 
-const grid_size: 40
+const grid_size: 30
 const grid_size_h: (grid_size / 2)
 
 const x_spacing: 33
