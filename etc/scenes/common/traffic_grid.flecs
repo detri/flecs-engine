@@ -2,7 +2,7 @@ using flecs.engine.*
 using flecs.script
 using traffic
 
-const grid_size: 10
+const grid_size: 40
 const grid_size_h: (grid_size / 2)
 
 const x_spacing: 33
@@ -11,7 +11,7 @@ const x_road_length: 27
 const z_road_length: 18
 
 const lane_width: 3
-const max_speed: 0.3
+const max_speed: 0.1
 const grid_y: 1
 
 for x in 0..grid_size {

@@ -1140,6 +1140,8 @@ static void trafficCars_laneUpdateCarEntities(ecs_iter_t *it) {
     FlecsWorldTransform3 *lane_xforms = ecs_field(it, FlecsWorldTransform3, 3);
     const TrafficCorner *corner = ecs_field(it, TrafficCorner, 4);
 
+    bool is_dynamic = ecs_table_has_id(it->real_world, it->table, FlecsDynamicTransform);
+
     for (int row = 0; row < it->count; row ++) {
         const TrafficLane *lane = &lanes[row];
         const TrafficLaneCars *cars = &lane_cars[row];
@@ -1170,16 +1172,30 @@ static void trafficCars_laneUpdateCarEntities(ecs_iter_t *it) {
              * Position3/Rotation3/Scale3 directly so the standard transform
              * pipeline can propagate to prefab children (Gltf meshes). */
             vec3 world_pos;
-            glm_mat4_mulv3(transform->m, (vec3){p[0], p[1], p[2]},
-                1.0f, world_pos);
+            glm_mat4_mulv3(transform->m, (vec3){p[0], p[1], p[2]}, 1.0f, world_pos);
             float lane_yaw = atan2f(transform->m[2][0], transform->m[2][2]);
+            float yaw_offset = (c && c->invert_direction) ? (t - (float)GLM_PI) : t;
 
-            ecs_set(world, e, FlecsPosition3, {world_pos[0], world_pos[1], world_pos[2]});
-            float yaw_offset = (c && c->invert_direction) ?
-                (t - (float)GLM_PI) : t;
-            ecs_set(world, e, FlecsRotation3,
-                {0, lane_yaw + yaw_offset + (float)(GLM_PI * 0.5f), 0});
-            ecs_set(world, e, FlecsScale3, {1.0f, 1.0f, 1.0f});
+            // if (is_dynamic) {
+                {
+                    FlecsPosition3 *ptr = ecs_get_mut(world, e, FlecsPosition3);
+                    ptr->x = world_pos[0];
+                    ptr->y = world_pos[1];
+                    ptr->z = world_pos[2];
+                }
+                {
+                    FlecsRotation3 *ptr = ecs_get_mut(world, e, FlecsRotation3);
+                    ptr->x = 0;
+                    ptr->y = lane_yaw + yaw_offset + (float)(GLM_PI * 0.5f);
+                    ptr->z = 0;
+                }
+
+            // } else {
+            //     ecs_set(world, e, FlecsPosition3, {world_pos[0], world_pos[1], world_pos[2]});
+            //     ecs_set(world, e, FlecsRotation3,
+            //         {0, lane_yaw + yaw_offset + (float)(GLM_PI * 0.5f), 0});
+            //     ecs_set(world, e, FlecsScale3, {1.0f, 1.0f, 1.0f});
+            // }
 
 #ifndef NDEBUG
             ecs_set_ptr(world, e, TrafficCar, car);
@@ -1564,7 +1580,6 @@ void TrafficCarsImport(ecs_world_t *world) {
         .query.terms = {
             { .id = ecs_id(TrafficLaneCars), .inout = EcsInOut }
         },
-        .multi_threaded = true,
         .callback = trafficCars_laneProgressCars
     });
 
@@ -1577,7 +1592,6 @@ void TrafficCarsImport(ecs_world_t *world) {
             { .id = ecs_id(TrafficLane), .inout = EcsIn },
             { .id = ecs_id(TrafficLaneCars), .inout = EcsInOut }
         },
-        .multi_threaded = true,
         .callback = trafficCars_laneCarSetTargetSpeed
     });
 
@@ -1605,7 +1619,6 @@ void TrafficCarsImport(ecs_world_t *world) {
               .oper = EcsOptional },
             { .id = ecs_id(TrafficLaneCars), .inout = EcsInOut }
         },
-        .multi_threaded = true,
         .callback = trafficCars_laneInitiateEndOfLaneBehavior
     });
 
@@ -1632,7 +1645,6 @@ void TrafficCarsImport(ecs_world_t *world) {
             { .id = ecs_id(TrafficLane), .inout = EcsIn },
             { .id = ecs_id(TrafficLaneCars), .inout = EcsInOut }
         },
-        .multi_threaded = true,
         .callback = trafficCars_laneCarSetDrivingState
     });
 
@@ -1644,7 +1656,6 @@ void TrafficCarsImport(ecs_world_t *world) {
         .query.terms = {
             { .id = ecs_id(TrafficLaneCars), .inout = EcsInOut }
         },
-        .multi_threaded = true,
         .callback = trafficCars_laneAccelerateCars
     });
 
@@ -1661,7 +1672,6 @@ void TrafficCarsImport(ecs_world_t *world) {
             { .id = ecs_id(TrafficCorner), .inout = EcsIn,
               .src.id = EcsSelf, .oper = EcsOptional }
         },
-        .multi_threaded = true,
         .callback = trafficCars_laneUpdateCarEntities
     });
 

@@ -71,6 +71,8 @@ int main(int argc, char *argv[]) {
 
     trafficParseArgs(argc, argv, &options);
 
+    flecsEngine_initTracy();
+
     ecs_world_t *world = ecs_init();
 #ifndef __EMSCRIPTEN__
     ECS_IMPORT(world, FlecsStats);
@@ -94,15 +96,15 @@ int main(int argc, char *argv[]) {
         .write_to_file = options.frame_output_path,
     });
 
-    ecs_system(world, {
-        .entity = ecs_entity(world, {
-            .name = "DeleteEmptyTables",
-            .add = ecs_ids(ecs_dependson(EcsPostLoad))
-        }),
-        .interval = 10,
-        .immediate = true,
-        .callback = trafficDeleteEmptyTables
-    });
+    // ecs_system(world, {
+    //     .entity = ecs_entity(world, {
+    //         .name = "DeleteEmptyTables",
+    //         .add = ecs_ids(ecs_dependson(EcsPostLoad))
+    //     }),
+    //     .interval = 10,
+    //     .immediate = true,
+    //     .callback = trafficDeleteEmptyTables
+    // });
 
     const char *scene = options.scene_path ?
         options.scene_path : "etc/scenes/traffic.flecs";
@@ -158,10 +160,12 @@ int main(int argc, char *argv[]) {
                 continue;
             }
 
-            for (int n = 1; n >= 0; n --) {
-                ecs_entity_t car = ecs_new_w_pair(world, EcsChildOf,
-                    TrafficCarRoot);
+            for (int n = 0; n >= 0; n --) {
+                ecs_entity_t car = ecs_new_w_pair(world, EcsChildOf, TrafficCarRoot);
+                ecs_add(world, car, FlecsDynamicTransform);
                 ecs_set(world, car, TrafficCar, {0});
+                ecs_set(world, car, FlecsScale3, {1.0f, 1.0f, 1.0f});
+
                 if (resolved_prefabs) {
                     ecs_add_pair(world, car, EcsIsA,
                         car_prefabs[rand() % resolved_prefabs]);
@@ -180,7 +184,7 @@ int main(int argc, char *argv[]) {
     }
     ecs_query_fini(lane_q);
 
-    ecs_set_threads(world, 8);
+    // ecs_set_threads(world, 8);
 
 #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop_arg(

@@ -57,4 +57,6 @@ extern ECS_COMPONENT_DECLARE(flecs_rgba_t);
 void FlecsEngineImport(
     ecs_world_t *world);
 
+void flecsEngine_initTracy(void);
+
 #endif

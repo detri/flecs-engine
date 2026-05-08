@@ -273,6 +273,14 @@ static void FlecsRotationFromLookAt(
     }
 }
 
+static void PropagateDynamicTransform(
+    ecs_iter_t *it)
+{
+    for (int32_t i = 0; i < it->count; i ++) {
+        ecs_add(it->world, it->entities[i], FlecsDynamicTransform);
+    }
+}
+
 void FlecsEngineTransform3Import(
     ecs_world_t *world)
 {
@@ -372,6 +380,9 @@ void FlecsEngineTransform3Import(
         [in]     flecs.engine.transform3.Position3,
         [in]     flecs.engine.transform3.LookAt,
         [out]    flecs.engine.transform3.Rotation3);
+
+    ECS_SYSTEM(world, PropagateDynamicTransform, EcsPostLoad,
+        DynamicTransform(up), !DynamicTransform(self));
 
     ecs_system(world, {
         .entity = ecs_entity(world, {
