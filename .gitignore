@@ -4,3 +4,4 @@ build
 .claude
 _deps
 test/out
+.bake

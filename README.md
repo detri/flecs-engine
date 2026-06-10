@@ -11,6 +11,34 @@ cmake --build build/debug
 ./build/debug/flecs
 ```
 
+### Building with bake3
+The project can also be built with [bake3](../../bake3). bake fetches and builds
+the external dependencies (glfw, cglm, wgpu-native, stb, tinyexr, cgltf, flecs)
+automatically via its `bundle` feature. Build and run an executable (the `flecs_app` target produces the `flecs` binary):
+```sh
+bake run flecs_app --local-env
+bake run traffic --local-env
+```
+Build an executable (and the `flecs_engine` library it depends on) without running:
+```sh
+bake build flecs_app --local-env
+bake build traffic --local-env
+```
+
+#### WebAssembly with bake3
+bake3 can also cross-compile to WebAssembly with `--target em`:
+```sh
+bake build flecs_app --target em --local-env
+bake build traffic --target em --local-env
+```
+This produces `flecs.html` / `flecs.wasm` / `flecs.js` (and `traffic.*`) under
+`.bake/local_env/build/<app>/wasm32-Emscripten-debug/`. bake automatically
+locates and activates the Emscripten SDK; if `emcc` is not already on `PATH` it
+sources `emsdk_env.sh` from `$EMSDK`, `$EMSDK_DIR`, or `~/GitHub/emsdk`. On this
+target bake builds the dependency bundles with `emcmake`, skips the native
+GLFW/WebGPU dependencies, and uses Emscripten's `-sUSE_GLFW=3 -sUSE_WEBGPU=1`
+ports instead.
+
 ## Why should I use this?
 You should probably not use this, unless:
 - you want to quickly prototype ideas

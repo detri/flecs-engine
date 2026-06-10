@@ -1,0 +1,7 @@
+{
+    "id": "traffic",
+    "type": "application",
+    "value": {
+        "use": ["flecs_engine"]
+    }
+}

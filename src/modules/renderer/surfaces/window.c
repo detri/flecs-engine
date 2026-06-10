@@ -75,10 +75,12 @@ static int flecsEngine_window_prepareFrame(
     FlecsEngineImpl *engine,
     FlecsSurfaceImpl *impl)
 {
+#ifndef __EMSCRIPTEN__
     if (glfwWindowShouldClose(impl->window)) {
         ecs_quit(world);
         return 1;
     }
+#endif
 
     int width = 0;
     int height = 0;

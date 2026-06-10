@@ -120,7 +120,7 @@ void flecsEngine_renderView_renderShadow(
             .colorAttachmentCount = 0,
             .colorAttachments = NULL,
             .depthStencilAttachment = &depth_attachment,
-            .timestampWrites = ts_pair >= 0 ? &ts_writes : NULL
+            .timestampWrites = WGPU_TIMESTAMP_WRITES(ts_pair >= 0 ? &ts_writes : NULL)
         };
 
         WGPURenderPassEncoder shadow_pass = wgpuCommandEncoderBeginRenderPass(

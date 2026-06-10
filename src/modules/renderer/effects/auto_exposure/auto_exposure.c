@@ -101,7 +101,13 @@ static const char *kReduceShaderSource =
     "    for (var i : u32 = 1u; i < 256u; i = i + 1u) {\n"
     "        total = total + shared_bins[i];\n"
     "    }\n"
-    "    if (total == 0u) { return; }\n"
+    "    /* Note: do NOT early-return when total == 0; the loop and divides\n"
+    "     * below are guarded, and the bootstrap at the bottom needs to run\n"
+    "     * so exposure[1] gets initialized to a non-zero value on the first\n"
+    "     * frame. Early-returning here is fine if exposure is already set,\n"
+    "     * but freezes a cold-start exposure[1] at 0 if the very first\n"
+    "     * histogram is empty (observed on Dawn/web when ae reads an\n"
+    "     * intermediate effect target). */\n"
     "    let low_t = u32(f32(total) * u.low_percentile);\n"
     "    let high_t = u32(f32(total) * u.high_percentile);\n"
     "    var running : u32 = 0u;\n"
@@ -487,7 +493,7 @@ static bool flecsEngine_autoExposure_render(
 
     WGPUComputePassEncoder cpass = wgpuCommandEncoderBeginComputePass(encoder,
         &(WGPUComputePassDescriptor){
-            .timestampWrites = ts_pair >= 0 ? &ts_writes : NULL
+            .timestampWrites = WGPU_TIMESTAMP_WRITES(ts_pair >= 0 ? &ts_writes : NULL)
         });
     if (!cpass) {
         return false;

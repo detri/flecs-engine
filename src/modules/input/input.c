@@ -2,10 +2,15 @@
 #include "input.h"
 #include "../../tracy_hooks.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/html5.h>
+#endif
+
 ECS_COMPONENT_DECLARE(FlecsInput);
 extern ECS_COMPONENT_DECLARE(FlecsEngineImpl);
 extern ECS_COMPONENT_DECLARE(FlecsSurfaceImpl);
 
+#ifndef __EMSCRIPTEN__
 static int flecsEngine_input_keyCode(
     int glfw_key)
 {
@@ -82,6 +87,7 @@ static int flecsEngine_input_keyCode(
         return FLECS_KEY_UNKNOWN;
     }
 }
+#endif /* !__EMSCRIPTEN__ */
 
 static flecs_engine_key_state_t* flecsEngine_input_keyGet(
     FlecsInput *input,
@@ -156,6 +162,7 @@ static void flecsEngine_input_mouseReset(
     input->mouse.scroll = (flecs_engine_mouse_coord_t){0};
 }
 
+#ifndef __EMSCRIPTEN__
 static void flecsEngine_input_onKey(
     GLFWwindow *window,
     int key,
@@ -254,6 +261,153 @@ static void flecsEngine_input_bindWindow(
     glfwSetMouseButtonCallback(window, flecsEngine_input_onMouseButton);
     glfwSetScrollCallback(window, flecsEngine_input_onScroll);
 }
+#else /* __EMSCRIPTEN__ */
+
+/* On the web, input is delivered through emscripten's HTML5 event callbacks
+ * attached to the "#canvas" element. Keyboard events only reach the canvas
+ * while it has focus, which the frontend toggles when the canvas is selected,
+ * matching the previous (sokol) renderer's behavior. */
+
+static ecs_world_t *flecs_em_input_world = NULL;
+
+static int flecsEngine_input_em_keyCode(
+    int dom_key)
+{
+    if (dom_key >= 'A' && dom_key <= 'Z') {
+        return FLECS_KEY_A + (dom_key - 'A'); /* DOM is uppercase, FLECS lower */
+    }
+    if (dom_key >= '0' && dom_key <= '9') {
+        return dom_key; /* FLECS_KEY_0..9 are the ASCII digits */
+    }
+    switch (dom_key) {
+    case 32:  return FLECS_KEY_SPACE;
+    case 13:  return FLECS_KEY_RETURN;
+    case 9:   return FLECS_KEY_TAB;
+    case 8:   return FLECS_KEY_BACKSPACE;
+    case 27:  return FLECS_KEY_ESCAPE;
+    case 16:  return FLECS_KEY_LEFT_SHIFT;
+    case 17:  return FLECS_KEY_LEFT_CTRL;
+    case 18:  return FLECS_KEY_LEFT_ALT;
+    case 37:  return FLECS_KEY_LEFT;
+    case 38:  return FLECS_KEY_UP;
+    case 39:  return FLECS_KEY_RIGHT;
+    case 40:  return FLECS_KEY_DOWN;
+    case 33:  return FLECS_KEY_PAGE_UP;
+    case 34:  return FLECS_KEY_PAGE_DOWN;
+    case 36:  return FLECS_KEY_HOME;
+    case 35:  return FLECS_KEY_END;
+    case 45:  return FLECS_KEY_INSERT;
+    case 46:  return FLECS_KEY_DELETE;
+    default:  return FLECS_KEY_UNKNOWN;
+    }
+}
+
+static FlecsInput* flecsEngine_input_em_get(void) {
+    if (!flecs_em_input_world) {
+        return NULL;
+    }
+    return ecs_singleton_ensure(flecs_em_input_world, FlecsInput);
+}
+
+static EM_BOOL flecsEngine_input_em_onKey(
+    int event_type,
+    const EmscriptenKeyboardEvent *e,
+    void *user_data)
+{
+    (void)user_data;
+    FlecsInput *input = flecsEngine_input_em_get();
+    if (!input) {
+        return EM_FALSE;
+    }
+
+    int key = flecsEngine_input_em_keyCode((int)e->keyCode);
+    if (key == FLECS_KEY_UNKNOWN) {
+        return EM_FALSE; /* let the browser handle keys the engine ignores */
+    }
+
+    flecs_engine_key_state_t *state = flecsEngine_input_keyGet(input, key);
+    if (event_type == EMSCRIPTEN_EVENT_KEYUP) {
+        flecsEngine_input_keyUp(state);
+    } else {
+        flecsEngine_input_keyDown(state);
+    }
+    return EM_TRUE; /* consume so the page doesn't scroll/shortcut on game keys */
+}
+
+static EM_BOOL flecsEngine_input_em_onMouse(
+    int event_type,
+    const EmscriptenMouseEvent *e,
+    void *user_data)
+{
+    (void)user_data;
+    FlecsInput *input = flecsEngine_input_em_get();
+    if (!input) {
+        return EM_FALSE;
+    }
+
+    if (event_type == EMSCRIPTEN_EVENT_MOUSEMOVE) {
+        input->mouse.wnd.x = (float)e->targetX;
+        input->mouse.wnd.y = (float)e->targetY;
+        return EM_FALSE;
+    }
+
+    flecs_engine_key_state_t *btn = NULL;
+    if (e->button == 0) {
+        btn = &input->mouse.left;
+    } else if (e->button == 2) {
+        btn = &input->mouse.right;
+    }
+    if (!btn) {
+        return EM_FALSE;
+    }
+
+    if (event_type == EMSCRIPTEN_EVENT_MOUSEUP) {
+        flecsEngine_input_keyUp(btn);
+    } else {
+        flecsEngine_input_keyDown(btn);
+    }
+    /* Don't consume: let the click focus the canvas so keyboard events route
+     * here (the keyboard callbacks only fire while the canvas is focused). */
+    return EM_FALSE;
+}
+
+static EM_BOOL flecsEngine_input_em_onWheel(
+    int event_type,
+    const EmscriptenWheelEvent *e,
+    void *user_data)
+{
+    (void)event_type;
+    (void)user_data;
+    FlecsInput *input = flecsEngine_input_em_get();
+    if (!input) {
+        return EM_FALSE;
+    }
+    /* Normalize browser pixel deltas to GLFW-like notch units (up is +1). */
+    input->mouse.scroll.x += -(float)e->deltaX / 100.0f;
+    input->mouse.scroll.y += -(float)e->deltaY / 100.0f;
+    return EM_TRUE;
+}
+
+static void flecsEngine_input_em_register(
+    ecs_world_t *world)
+{
+    flecs_em_input_world = world;
+
+    const char *canvas = "#canvas";
+    emscripten_set_keydown_callback(
+        canvas, NULL, EM_TRUE, flecsEngine_input_em_onKey);
+    emscripten_set_keyup_callback(
+        canvas, NULL, EM_TRUE, flecsEngine_input_em_onKey);
+    emscripten_set_mousedown_callback(
+        canvas, NULL, EM_TRUE, flecsEngine_input_em_onMouse);
+    emscripten_set_mouseup_callback(
+        canvas, NULL, EM_TRUE, flecsEngine_input_em_onMouse);
+    emscripten_set_mousemove_callback(
+        canvas, NULL, EM_TRUE, flecsEngine_input_em_onMouse);
+    emscripten_set_wheel_callback(
+        canvas, NULL, EM_TRUE, flecsEngine_input_em_onWheel);
+}
+#endif /* __EMSCRIPTEN__ */
 
 static void FlecsReadInputs(
     ecs_iter_t *it)
@@ -265,6 +419,34 @@ static void FlecsReadInputs(
         return;
     }
 
+#ifdef __EMSCRIPTEN__
+    /* No GLFW window on the web. Input arrives asynchronously via the HTML5
+     * callbacks (registered once); here we just advance the per-frame state
+     * and derive the mouse delta from the latest cursor position. */
+    static bool em_registered = false;
+    if (!em_registered) {
+        flecsEngine_input_em_register(it->world);
+        em_registered = true;
+    }
+
+    FlecsInput *input = ecs_singleton_ensure(it->world, FlecsInput);
+
+    float prev_x = input->mouse.wnd.x;
+    float prev_y = input->mouse.wnd.y;
+
+    flecsEngine_input_keysReset(input);
+    flecsEngine_input_mouseReset(input);
+
+    input->mouse.rel.x = input->mouse.wnd.x - prev_x;
+    input->mouse.rel.y = input->mouse.wnd.y - prev_y;
+
+    double css_w = 0.0;
+    double css_h = 0.0;
+    emscripten_get_element_css_size("#canvas", &css_w, &css_h);
+    input->mouse.view.x = input->mouse.wnd.x - ((float)css_w * 0.5f);
+    input->mouse.view.y = input->mouse.wnd.y - ((float)css_h * 0.5f);
+    FLECS_TRACY_ZONE_END;
+#else
     const FlecsSurfaceImpl *wnd = ecs_get(
         it->world, engine->surface, FlecsSurfaceImpl);
     if (!wnd || !wnd->window) {
@@ -300,6 +482,7 @@ static void FlecsReadInputs(
     input->mouse.view.x = input->mouse.wnd.x - ((float)wnd_w * 0.5f);
     input->mouse.view.y = input->mouse.wnd.y - ((float)wnd_h * 0.5f);
     FLECS_TRACY_ZONE_END;
+#endif
 }
 
 void FlecsEngineInputImport(

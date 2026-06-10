@@ -407,7 +407,7 @@ void flecsEngine_hiz_build(
     flecsEngine_gpuTiming_computePassTimestamps(engine, ts_pair, &ts_writes);
 
     WGPUComputePassDescriptor desc = {
-        .timestampWrites = ts_pair >= 0 ? &ts_writes : NULL
+        .timestampWrites = WGPU_TIMESTAMP_WRITES(ts_pair >= 0 ? &ts_writes : NULL)
     };
     WGPUComputePassEncoder cpass = wgpuCommandEncoderBeginComputePass(
         encoder, &desc);

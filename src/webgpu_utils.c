@@ -223,7 +223,7 @@ bool flecsEngine_fullscreenPass(
         encoder, &(WGPURenderPassDescriptor){
             .colorAttachmentCount = 1,
             .colorAttachments = &color_att,
-            .timestampWrites = ts_writes
+            .timestampWrites = WGPU_TIMESTAMP_WRITES(ts_writes)
         });
     if (!pass) {
         return false;

@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
 
     ecs_world_t *world = ecs_init();
 #ifndef __EMSCRIPTEN__
-    ECS_IMPORT(world, FlecsStats);
+    // ECS_IMPORT(world, FlecsStats);
 #endif
     ECS_IMPORT(world, FlecsScriptMath);
     ECS_IMPORT(world, FlecsEngine);
@@ -193,7 +193,9 @@ int main(int argc, char *argv[]) {
     if (!options.frame_output_path) {
         ecs_singleton_set(world, EcsRest, {0});
     }
-    while (ecs_progress(world, 0)) {}
+    while (ecs_progress(world, 0)) {
+        // ecs_shrink(world);
+    }
 #endif
 
     ecs_log_set_level(-1);

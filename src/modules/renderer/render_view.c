@@ -683,7 +683,7 @@ static WGPURenderPassEncoder flecsEngine_renderView_beginPass(
         .colorAttachmentCount = 1,
         .colorAttachments = &color_attachment,
         .depthStencilAttachment = &depth_attachment,
-        .timestampWrites = ts_pair >= 0 ? &ts_writes : NULL
+        .timestampWrites = WGPU_TIMESTAMP_WRITES(ts_pair >= 0 ? &ts_writes : NULL)
     };
 
     return wgpuCommandEncoderBeginRenderPass(encoder, &pass_desc);

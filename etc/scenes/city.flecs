@@ -1,235 +1,270 @@
 include config/sky
-
 using flecs.script
 using flecs.engine.*
+using flecs.game
 
 const rng = math.Rng: {} // Random number generator
 
-@tree Parent
-template Tree {
-  prop height: 1
-
-  const trunkY = 0.5
-  const canopyY = height - trunkY
-
-  {
-    Position3: {0, trunkY / 2, 0}
-    Rgba: {20.4, 7.65, 0}
-    Box: {0.1, trunkY, 0.1}
-  } {
-    Position3: {0, trunkY + canopyY / 2, 0}
-    Rgba: {25.5, 51, 15.3}
-    Box: {0.5, canopyY, 0.5}
-  }
+ground {
+  Position3: {y: -0.5}
+  Box: {1000, 1, 1000}
+  Rgba: {0.2, 0.2, 0.2}
 }
 
 @tree Parent
-template Pavement {
-  prop width: 5.0
-
-  Box: {width, 0.1, width}
-  Rgba: {51, 51, 51}
+template Frame {
+  prop width: 1.0
+  prop height: 2.0
+  prop styleWidth: 0.1
+  prop styleDepth: 0.1
+  prop barWidth: 0.05
+  prop barsHorizontal: 2
+  prop barsVertical: 1
+  prop color = Rgba: {255, 255, 255}
   
-  const trees = 2
-  const spacing = width / trees
-  const offset = (width/2) - 0.2
+  const wH = width / 2
+  const hH = height / 2
+  const swH = styleWidth / 2
 
-  for i in 0..trees {
-    const x = (i + 0.5) * spacing - width / 2
-    Tree(height: rng.f(2) + 2) {Position3: {-offset, 0, x}}
-    Tree(height: rng.f(2) + 2) {Position3: {offset, 0, x}}
-    Tree(height: rng.f(2) + 2) {Position3: {x, 0, -offset}}
-    Tree(height: rng.f(2) + 1) {Position3: {x, 0, offset}}
+  {
+    Position3: {0, hH - swH}
+    Box: {width, styleWidth, styleDepth}
+    $color
+  }
+  {
+    Position3: {0, -hH + swH}
+    Box: {width, styleWidth, styleDepth}
+    $color
+  }
+  {
+    Position3: {-wH + swH, 0}
+    Box: {styleWidth, height, styleDepth}
+    $color
+  }
+  {
+    Position3: {wH - swH, 0}
+    Box: {styleWidth, height, styleDepth}
+    $color
+  }
+  
+  @name HorizontalBars
+  {
+    Position3: {0}
+
+    const innerHeight = height - styleWidth * 2
+    const sep = innerHeight / (barsHorizontal + 1)
+    const offset = hH - styleWidth
+    for i in 0..barsHorizontal {
+      {
+        Position3: {0, offset - (i + 1) * sep}
+        Box: {width - styleWidth * 2, barWidth, styleDepth / 2}
+        $color
+      }
+    }
+  }
+
+  @name VerticalBars
+  {
+    Position3: {0}
+
+    const innerWidth = width - styleWidth * 2
+    const sep = innerWidth / (barsVertical + 1)
+    const offset = wH - styleWidth
+    for i in 0..barsVertical {
+      {
+        Position3: {offset - (i + 1) * sep}
+        Box: {barWidth, height - styleWidth * 2, styleDepth / 2}
+        $color
+      }
+    }
   }
 }
 
 @tree Parent
 template Building {
-  prop width: 4
-  prop floors: 8
-  prop windows: 3
-  prop windowSpacing: 0.4
-  prop floorThickness: 0.6
-  prop color = Rgba: {76.5, 76.5, 76.5}
+  prop floors: 5
+  prop unitsPerFloor: 6
+  prop floorHeight: 2
+  prop floorWidth: 10
+  prop floorSep: 0.5
+  prop floorOverhang: 0.3
+  prop unitSepOverhang: 0.2
+  prop unitSepWidth: 0.2
+  prop pillarOffset: 0
+  prop pillarWidth: 0.3
+  prop windowStyles: true
+  prop windowStylesWidth: 0.05
+  prop windowStylesDepth: 0.1
 
-  // Single blue box for the windows
-  {
-    Position3: {0, floors, 0}
-    Box: {width - 0.2, floors * 2, width - 0.2}
-    Rgba: {2.55, 5.1, 12.75}
-    PbrMaterial: {roughness: 0.07}
-  }
+  prop windowColor = Rgba: {10, 10, 10}
+  prop wallColor = Rgba: {10, 40, 40}
+  prop windowStylesColor = Rgba: {255, 255, 255}
+  prop unitSepColor = Rgba: {100, 100, 100}
 
-  const pillars = windows + 2
-  const wallW: width - windowSpacing
-  const wallWH: wallW / 2
-  const spacing: wallW / (pillars - 1)
+  const totalHeight = floors * floorHeight
+  const pillarPos = floorWidth / 2 + pillarOffset + pillarWidth / 2
 
-  with $color {
-    // Floors
-    for i in 0..floors {{
-      Position3: {0, y: 2 * i + 2, 0}
-      Box: {width, floorThickness, width}
-    }}
-
-    // Separation between windows
-    for p in 1..(pillars - 1) {{
-      Position3: {
-        p * spacing - wallWH, floors
-      }
-      Box: {windowSpacing, floors * 2, width}
-    }{
-      Position3: {
-        0, floors, p * spacing - wallWH
-      }
-      Box: {width, floors * 2, windowSpacing}
-    }}
-
-    // Create boxes on the corners
-    with Box(windowSpacing, floors * 2, windowSpacing) {
-     {Position3: {-wallWH, floors, -wallWH}}
-     {Position3: {-wallWH, floors, wallWH}} 
-     {Position3: {wallWH, floors, wallWH}} 
-     {Position3: {wallWH, floors, -wallWH}}
-    }
-  }
-}
-
-// Street lantern template - arm extends in +x direction, rotated when placed
-@tree Parent
-template StreetLantern {
-  prop poleHeight: 3
-  prop on: true
-
-  // Pole
-  {
-    Position3: {0, poleHeight / 2, 0}
-    Box: {0.12, poleHeight, 0.12}
-    Rgba: {20.4, 20.4, 20.4}
-    PbrMaterial: {metallic: 1, roughness: 0.4}
-  }
-
-  // Arm at top
-  {
-    Position3: {0.6, poleHeight - 0.1, 0}
-    Box: {1.2, 0.08, 0.08}
-    Rgba: {20.4, 20.4, 20.4}
-    PbrMaterial: {metallic: 1, roughness: 0.4}
-  }
-
-  // Lamp housing
-  {
-    Position3: {1.1, poleHeight - 0.1, 0}
-    Box: {0.6, 0.2, 0.3}
-    Rgba: {20.4, 20.4, 20.4}
-    PbrMaterial: {metallic: 1, roughness: 0.4}
-  }
-
-  const onoff = match on {
-    true: 1.0
-    false: 0.0
-  }
-
-  // Emissive lamp bulb
-  {
-    Position3: {1.1, poleHeight - 0.2, 0}
-    Box: {0.5, 0.2, 0.2}
-    Rgba: {255, 229.5, 178.5}
-    Emissive: {strength: match on {
-        true: 5
-        false: 0
-      }
-    }
-  }
-
-  // Spotlight facing down
-  if on {
+  pillars {
+    Position3: {}
     {
-      Position3: {1.1, poleHeight - 0.5, 0}
-      Rotation3: {-math.PI / 2, 0, 0}
-      SpotLight: {intensity: 20, range: 8, inner_angle: 5, outer_angle: 60}
-      Rgba: {255, 229.5, 178.5}
+      Position3: {pillarPos, totalHeight / 2, pillarPos}
+      Box: {pillarWidth, totalHeight, pillarWidth}
+      $wallColor
+    }
+    {
+      Position3: {-pillarPos, totalHeight / 2, pillarPos}
+      Box: {pillarWidth, totalHeight, pillarWidth}
+      $wallColor
+    }
+    {
+      Position3: {pillarPos, totalHeight / 2, -pillarPos}
+      Box: {pillarWidth, totalHeight, pillarWidth}
+      $wallColor
+    }
+    {
+      Position3: {-pillarPos, totalHeight / 2, -pillarPos}
+      Box: {pillarWidth, totalHeight, pillarWidth}
+      $wallColor
     }
   }
-}
-
-// City template
-template City {
-  prop gridSize: 15
-  prop blockWidth: 17
-  prop pavementWidth: 12
-  prop buildingWidth: 8
-  prop maxFloors: 26
-  prop varFloors: 4
-  prop streetLights: true
-
-  const gridSizeH = gridSize / 2
-
-  // Street plane
-  {
-    Position3: {0, 0.1 / 2, 0}
-    Box: {600, 0.1, 600}
-    Rgba: {20.4, 20.4, 20.4}
-  }
-
-  // The city grid
-  for x in 0 .. gridSize {
-    for y in 0 .. gridSize {
-      const xR: x - gridSizeH
-      const yR: y - gridSizeH
-      const xS: 1.0 - (math.abs(xR + 0.5) / gridSizeH)
-      const yS: 1.0 - (math.abs(yR + 0.5) / gridSizeH)
-      const baseY: math.pow(xS, 2) * math.pow(yS, 2) * maxFloors
-      const xP: xR * blockWidth + blockWidth / 2
-      const yP: yR * blockWidth + blockWidth / 2
-      const rgb: rng.f(127.5) + 12.75
-
-      // Pavement
-      Pavement(pavementWidth) {
-        Position3: {xP, 0.1, yP} 
-      }
   
-      // Building
-      Building(
-        width: buildingWidth
-        floors: baseY + rng.u(varFloors) + 1
-        windows: rng.u(5) + 1
-        floorThickness: rng.f(0.2) + 0.4
-        windowSpacing: rng.f(0.6) + 0.2
-        color: {rgb + rng.f(38.25), rgb, rgb}
-      ) {
-        Position3: {xP, 0.1, yP}
-      }
+  for i in 0..floors {
+    const floorOffset = i * floorHeight
+    const windowHeight = floorHeight - floorSep
+    const floorY = floorOffset + windowHeight / 2
 
-      // Street lanterns - one on each side of the block
-      const edgeOff = pavementWidth / 2.3
+    windows {
+      Position3: {}
+      {
+        Position3: {0, floorY}
+        Box: {floorWidth, floorHeight, floorWidth}
+        $windowColor
+        PbrMaterial: {metallic: 0, roughness: 0}
+      }
+    }
 
-      StreetLantern(on: streetLights) {
-        Position3: {xP + edgeOff, 0.1, yP}
-        Rotation3: {0, 0, 0}
+    
+    units {
+      Position3: {}
+
+      const sepCount = unitsPerFloor - 1
+      const unitWidth = floorWidth / unitsPerFloor
+      const sepLength = floorWidth + unitSepOverhang * 2
+
+      for u in 0..sepCount {
+       {
+          Position3: {u * unitWidth - floorWidth / 2 + unitWidth, floorY}
+          Box: {unitSepWidth, windowHeight, sepLength}
+          $unitSepColor
+       }
+       {
+          Position3: {0, floorY, u * unitWidth - floorWidth / 2 + unitWidth}
+          Box: {sepLength, windowHeight, unitSepWidth}
+          $unitSepColor
+       }
       }
-      StreetLantern(on: streetLights) {
-        Position3: {xP - edgeOff, 0.1, yP}
-        Rotation3: {0, math.PI, 0}
+    }
+
+    if windowStyles {
+      winStyles {
+        Position3: {}
+
+        const unitWidth = floorWidth / unitsPerFloor
+        const frameWidth = unitWidth - unitSepWidth
+        const outer = floorWidth / 2 + windowStylesDepth / 2
+
+        for u in 0..unitsPerFloor {
+          const unitPos = u * unitWidth - floorWidth / 2 + unitWidth / 2
+          
+          with Frame(
+            width: frameWidth, 
+            height: windowHeight,  
+            styleWidth: windowStylesWidth, 
+            styleDepth: windowStylesDepth, 
+            color: windowStylesColor) 
+          {
+            {
+              Position3: {unitPos, floorY, outer}
+            }
+            {
+              Position3: {unitPos, floorY, -outer}
+            }
+            {
+              Position3: {outer, floorY, unitPos}
+              Rotation3: {0, math.PI / 2, 0}
+            }
+            {
+              Position3: {-outer, floorY, unitPos}
+              Rotation3: {0, math.PI / 2, 0}
+            }
+          }
+        }
       }
-      StreetLantern(on: streetLights) {
-        Position3: {xP, 0.1, yP + edgeOff}
-        Rotation3: {0, -math.PI / 2, 0}
-      }
-      StreetLantern(on: streetLights) {
-        Position3: {xP, 0.1, yP - edgeOff}
-        Rotation3: {0, math.PI / 2, 0}
+    }
+
+    floors {
+      Position3: {}
+      {
+        Position3: {0, floorOffset + floorHeight - floorSep / 2}
+        Box: {floorWidth + 2*floorOverhang, floorSep, floorWidth + 2*floorOverhang}
+        $wallColor
       }
     }
   }
 }
 
-// Create the city with default values
-City city() {
-  Position3: {z: -150}
+template CityBlock {
+  prop width: 10
+  
+  const yOffset: 0.2
+
+  {
+    Position3: {y: yOffset / 2}
+    Box: {width, yOffset, width}
+    Rgba: {100, 100, 100}
+  }
+  
+  Building building(floorWidth: width - 3) {
+    Position3: {y: yOffset}
+  }
 }
 
-camera {
-  Position3: {-105, 16.7, -20.5}
-  LookAt: {-104.367, 16.514, -21.251}
+template Road {
+  prop width: 15
+  {
+    Position3: {}
+    Box: {width / 2, 1, width / 2}
+    Rgba: {255}
+  }
 }
+
+template Cross {
+  prop roadWidth: 15
+  prop buildingWidth: 10
+  
+  const rH: roadWidth / 2
+
+  Position3: {}
+
+  CityBlock() {
+    Position3: {-rH, 0, -rH}
+  }
+  CityBlock() {
+    Position3: {rH, 0, -rH}
+  }
+  CityBlock() {
+    Position3: {-rH, 0, rH}
+  }
+  CityBlock() {
+    Position3: {rH, 0, rH}
+  }
+  
+  Road() {
+  }
+}
+
+Cross() {
+}
+
+
+

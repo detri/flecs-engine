@@ -86,10 +86,38 @@ typedef struct WGPUSurfaceConfiguration {
     /* alphaMode not available in emscripten SwapChain API */
 } WGPUSurfaceConfiguration;
 
+/* ---- Timestamp writes compat ---- */
+
+/* wgpu-native v27 attaches a single WGPU{Render,Compute}PassTimestampWrites
+   struct to a pass descriptor (begin/end write indices); emscripten's older
+   header instead uses a counted array of WGPU{Render,Compute}PassTimestampWrite
+   (queryIndex + location). GPU timing is optional, so on emscripten we define
+   the v27 structs for signature compatibility and disable timestamp attachment
+   (see WGPU_TIMESTAMP_WRITES below). */
+#ifndef WGPU_QUERY_SET_INDEX_UNDEFINED
+#define WGPU_QUERY_SET_INDEX_UNDEFINED 0xFFFFFFFFu
+#endif
+
+typedef struct WGPURenderPassTimestampWrites {
+    WGPUQuerySet querySet;
+    uint32_t beginningOfPassWriteIndex;
+    uint32_t endOfPassWriteIndex;
+} WGPURenderPassTimestampWrites;
+
+typedef struct WGPUComputePassTimestampWrites {
+    WGPUQuerySet querySet;
+    uint32_t beginningOfPassWriteIndex;
+    uint32_t endOfPassWriteIndex;
+} WGPUComputePassTimestampWrites;
+
+#define WGPU_TIMESTAMP_WRITES(ptr) NULL
+
 #else /* native / wgpu-native v27 */
 
 #define WGPU_MULTISAMPLE_DEFAULT { .count = 1 }
 #define WGPU_MULTISAMPLE(n) { .count = (n) }
+
+#define WGPU_TIMESTAMP_WRITES(ptr) (ptr)
 
 /* On native, WGPUStringView already exists. These macros build the
    struct literal that wgpu-native expects. */

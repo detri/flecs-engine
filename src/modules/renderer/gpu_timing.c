@@ -13,6 +13,14 @@ int flecsEngine_gpuTiming_init(FlecsEngineImpl *engine)
     flecsEngine_gpuTiming_t *t = &engine->gpu_timing;
     ecs_os_zeromem(t);
 
+    /* The timestamp-query feature is optional and is not requested on the web
+     * (Emscripten) device. Creating a timestamp query set without it is a
+     * validation error, so only proceed when the device supports it. */
+    if (!wgpuDeviceHasFeature(engine->device, WGPUFeatureName_TimestampQuery)) {
+        ecs_warn("timestamp queries not available — GPU timing disabled");
+        return 0;
+    }
+
     t->query_set = wgpuDeviceCreateQuerySet(engine->device,
         &(WGPUQuerySetDescriptor){
             .type = WGPUQueryType_Timestamp,

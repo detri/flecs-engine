@@ -179,11 +179,19 @@ static void FlecsOnSurfaceSet(
             int h = config->height > 0 ? config->height : 800;
             const char *title = config->title ? config->title : "Flecs Engine";
 
+#ifdef __EMSCRIPTEN__
+            /* On the web the WebGPU surface is created directly from the
+             * "#canvas" element, so no GLFW window is needed. Creating one
+             * (glfwInit) does not complete in the browser, so skip it. */
+            (void)title; (void)w; (void)h;
+            impl.window = NULL;
+#else
             impl.window = flecsEngine_createGlfwWindow(title, w, h);
             if (!impl.window) {
                 ecs_quit(it->world);
                 return;
             }
+#endif
             impl.vsync = config->vsync;
             impl.interface = &flecsEngineWindowOps;
         }
