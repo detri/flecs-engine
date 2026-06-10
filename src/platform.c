@@ -188,6 +188,20 @@ WGPUDevice flecsEngine_requestDevice(
         .requiredFeatures = required_features,
         .requiredFeatureCount = 2
     };
+
+    WGPULimits required_limits;
+    ecs_os_memset_t(&required_limits, 0xFF, WGPULimits);
+    required_limits.nextInChain = NULL;
+
+    WGPULimits supported_limits = {0};
+    if (wgpuAdapterGetLimits(adapter, &supported_limits) ==
+        WGPUStatus_Success)
+    {
+        required_limits.maxStorageBufferBindingSize =
+            supported_limits.maxStorageBufferBindingSize;
+        required_limits.maxBufferSize = supported_limits.maxBufferSize;
+        desc.requiredLimits = &required_limits;
+    }
 #else
     WGPUDeviceDescriptor desc = {0};
 #endif
