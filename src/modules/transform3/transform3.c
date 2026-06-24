@@ -276,8 +276,10 @@ static void FlecsRotationFromLookAt(
 static void PropagateDynamicTransform(
     ecs_iter_t *it)
 {
+    ecs_world_t *world = it->world;
+
     for (int32_t i = 0; i < it->count; i ++) {
-        ecs_add(it->world, it->entities[i], FlecsDynamicTransform);
+        ecs_add_id(world, it->entities[i], FlecsDynamicTransform);
     }
 }
 
@@ -381,9 +383,6 @@ void FlecsEngineTransform3Import(
         [in]     flecs.engine.transform3.LookAt,
         [out]    flecs.engine.transform3.Rotation3);
 
-    ECS_SYSTEM(world, PropagateDynamicTransform, EcsPostLoad,
-        DynamicTransform(up), !DynamicTransform(self));
-
     ecs_system(world, {
         .entity = ecs_entity(world, {
             .name = "Transform3",
@@ -392,6 +391,17 @@ void FlecsEngineTransform3Import(
         .run = FlecsTransform3,
         .ctx = ctx,
         .ctx_free = flecsEngine_transform3_queriesFree
+    });
+
+    ecs_observer(world, {
+        .entity = ecs_entity(world, { .name = "PropagateDynamicTransform" }),
+        .query.terms = {
+            { .id = FlecsDynamicTransform, .src.id = EcsUp },
+            { .id = FlecsDynamicTransform, .oper = EcsNot }
+        },
+        .events = {EcsOnAdd},
+        .callback = PropagateDynamicTransform,
+        .yield_existing = true
     });
 
     /* Observers for static (non-dynamic) entities. Recompute WorldTransform
