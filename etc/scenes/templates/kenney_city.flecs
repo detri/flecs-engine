@@ -228,32 +228,26 @@ template City {
       const density = math.perlin2(xP * 0.012, zP * 0.012) * 0.5 + 0.5
 
       if density < 0.2 {
-        @name Industrial block
         IndustrialBlock() {
           Position3: {xP, 0.01, zP}
         }
       } else if density < 0.4 {
-        @name Forest block
         ForestBlock() {
           Position3: {xC, 0.01, zC}
         }
       } else if density < 0.45 {
-        @name Low density block
         LowDensityLargeBlock() {
           Position3: {xC, 0.01, zC}
         }
       } else if density < 0.6 {
-        @name Low density block
         LowDensitySmallBlock() {
           Position3: {xC, 0.01, zC}
         }
       } else if density < 0.8 {
-        @name Medium density block
         MediumDensityBlock() {
           Position3: {xC, 0.01, zC}
         }
       } else {
-        @name High density block
         HighDensityBlock() {
           Position3: {xP, 0.01, zP}
         }

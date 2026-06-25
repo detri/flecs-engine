@@ -6,8 +6,10 @@
 #include "../webgpu_utils.h"
 #include "engine_state.h"
 
-struct FlecsSurfaceImpl {
-    const struct FlecsEngineSurfaceInterface *interface;
+struct FlecsEngineSurfaceInterface;
+
+typedef struct FlecsSurfaceImpl {
+    const struct FlecsEngineSurfaceInterface *ops;
 
     GLFWwindow *window;
     WGPUSurface wgpu_surface;
@@ -22,7 +24,7 @@ struct FlecsSurfaceImpl {
     /* Previous sample count, used to detect MSAA changes and trigger batch
      * pipeline rebuilds when the surface's sample_count changes. */
     int32_t prev_sample_count;
-};
+} FlecsSurfaceImpl;
 
 extern ECS_COMPONENT_DECLARE(FlecsSurfaceImpl);
 

@@ -1373,10 +1373,10 @@ void TrafficCarsImport(ecs_world_t *world) {
         }
     });
 
-    /* Scopes for storing road and car entities at world root. */
+    /* Internal storage roots. Keep these out of user-facing script namespaces. */
     ecs_entity_t prev_scope = ecs_set_scope(world, 0);
-    TrafficCarRoot = ecs_entity(world, { .name = "cars" });
-    TrafficRoadRoot = ecs_entity(world, { .name = "roads" });
+    TrafficCarRoot = ecs_entity(world, { .name = "__traffic_cars_root" });
+    TrafficRoadRoot = ecs_entity(world, { .name = "__traffic_roads_root" });
     ecs_set_scope(world, prev_scope);
 
     /* With relationships */

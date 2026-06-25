@@ -1,7 +1,5 @@
 #include "traffic.h"
 
-#include <limits.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -48,12 +46,6 @@ static float randf(int n) {
     return (float)(rand() % n);
 }
 
-static void trafficDeleteEmptyTables(ecs_iter_t *it) {
-    ecs_delete_empty_tables_desc_t desc = {0};
-    desc.delete_generation = 1;
-    ecs_delete_empty_tables(it->world, &desc);
-}
-
 #ifdef __EMSCRIPTEN__
 static void trafficWasmFrame(void *arg) {
     ecs_world_t *world = arg;
@@ -95,16 +87,6 @@ int main(int argc, char *argv[]) {
         .msaa = FlecsMsaa4x,
         .write_to_file = options.frame_output_path,
     });
-
-    // ecs_system(world, {
-    //     .entity = ecs_entity(world, {
-    //         .name = "DeleteEmptyTables",
-    //         .add = ecs_ids(ecs_dependson(EcsPostLoad))
-    //     }),
-    //     .interval = 10,
-    //     .immediate = true,
-    //     .callback = trafficDeleteEmptyTables
-    // });
 
     const char *scene = options.scene_path ?
         options.scene_path : "etc/scenes/traffic.flecs";
@@ -160,7 +142,10 @@ int main(int argc, char *argv[]) {
                 continue;
             }
 
-            for (int n = 0; n >= 0; n --) {
+            /* The original reverse loop only executed once because it started
+             * at 0 and decremented into a false condition immediately. Keep
+             * the effective behavior explicit here. */
+            for (int n = 0; n < 1; n ++) {
                 ecs_entity_t car = ecs_new_w_pair(world, EcsChildOf, TrafficCarRoot);
                 ecs_add(world, car, FlecsDynamicTransform);
                 ecs_set(world, car, TrafficCar, {0});
@@ -184,8 +169,6 @@ int main(int argc, char *argv[]) {
     }
     ecs_query_fini(lane_q);
 
-    // ecs_set_threads(world, 8);
-
 #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop_arg(
         (em_arg_callback_func)trafficWasmFrame, world, 0, 1);
@@ -193,9 +176,7 @@ int main(int argc, char *argv[]) {
     if (!options.frame_output_path) {
         ecs_singleton_set(world, EcsRest, {0});
     }
-    while (ecs_progress(world, 0.016)) {
-        // ecs_shrink(world);
-    }
+    while (ecs_progress(world, 0.016)) { }
 #endif
 
     ecs_log_set_level(-1);

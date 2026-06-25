@@ -114,8 +114,8 @@ typedef struct WGPUComputePassTimestampWrites {
 
 #else /* native / wgpu-native v27 */
 
-#define WGPU_MULTISAMPLE_DEFAULT { .count = 1 }
-#define WGPU_MULTISAMPLE(n) { .count = (n) }
+#define WGPU_MULTISAMPLE_DEFAULT { .count = 1, .mask = 0xFFFFFFFF }
+#define WGPU_MULTISAMPLE(n) { .count = (n), .mask = 0xFFFFFFFF }
 
 #define WGPU_TIMESTAMP_WRITES(ptr) (ptr)
 

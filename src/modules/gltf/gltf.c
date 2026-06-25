@@ -1,9 +1,10 @@
 #include "gltf.h"
 
+#include <stdio.h>
+
 #include <cgltf.h>
 #include <stb_image.h>
 #include <string.h>
-#include <stdio.h>
 #include <math.h>
 
 ECS_COMPONENT_DECLARE(FlecsGltf);
@@ -758,20 +759,12 @@ static void flecsEngine_gltf_load(
         last_sep = strrchr(path, '\\');
     }
 
-    char *dir_path = NULL;
-    if (last_sep) {
-        dir_path = ecs_os_malloc((ecs_size_t)(last_sep - path + 1));
-        memcpy(dir_path, path, (size_t)(last_sep - path));
-        dir_path[last_sep - path] = '\0';
-    }
-
     ecs_entity_t gltf_e = ecs_entity(world, {
         .parent = assets,
-        .name = dir_path ? dir_path : path,
+        .name = path,
         .sep = "/"
     });
     ecs_add_id(world, gltf_e, EcsPrefab);
-    ecs_os_free(dir_path);
 
     ecs_entity_t meshes_e = ecs_entity(world, {
         .parent = gltf_e,
@@ -838,6 +831,9 @@ static void flecsEngine_gltf_load(
         }
     }
 
+    int32_t created_mesh_prefabs = 0;
+    int32_t attached_mesh_instances = 0;
+
     if (is_primitive) {
         /* Primitive GLTF: apply mesh and transform directly to root */
         flecsEngine_gltf_setNodeTransform(world, root, prim_node);
@@ -855,7 +851,9 @@ static void flecsEngine_gltf_load(
                 meshes_e, path, image_entities,
                 material_entities, materials_e);
             if (mesh_prefab) {
+                created_mesh_prefabs++;
                 ecs_add_pair(world, root, EcsIsA, mesh_prefab);
+                attached_mesh_instances++;
             }
         }
     } else {
@@ -905,8 +903,11 @@ static void flecsEngine_gltf_load(
                     material_entities, materials_e);
                 if (!mesh_prefab) continue;
 
+                created_mesh_prefabs++;
+
                 if (tri_count == 1) {
                     ecs_add_pair(world, node_e, EcsIsA, mesh_prefab);
+                    attached_mesh_instances++;
                 } else {
                     ecs_entity_t prim_e;
                     if (use_parent_storage) {
@@ -919,6 +920,7 @@ static void flecsEngine_gltf_load(
                     }
                     ecs_set(world, prim_e, FlecsPosition3, {0, 0, 0});
                     ecs_add_pair(world, prim_e, EcsIsA, mesh_prefab);
+                    attached_mesh_instances++;
                 }
             }
         }

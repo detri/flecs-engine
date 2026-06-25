@@ -202,7 +202,9 @@ static bool flecsEngine_mesh_bindGroupTextures(
     int8_t *last_bucket)
 {
     if (!buf->uses_textures) return true;
-    if (ctx->texture_bucket == FLECS_ENGINE_BUCKET_INVALID) return false;
+    if (ctx->texture_bucket == FLECS_ENGINE_BUCKET_INVALID) {
+        return false;
+    }
 
     int8_t b = ctx->texture_bucket;
     WGPUBindGroup bg;
@@ -213,7 +215,9 @@ static bool flecsEngine_mesh_bindGroupTextures(
         bg = engine->textures.fallback_bind_group;
         b = -1;
     }
-    if (!bg) return false;
+    if (!bg) {
+        return false;
+    }
 
     if (b != *last_bucket) {
         wgpuRenderPassEncoderSetBindGroup(pass, 1, bg, 0, NULL);

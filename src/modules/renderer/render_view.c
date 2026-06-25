@@ -1,5 +1,4 @@
 #include <string.h>
-
 #include "renderer.h"
 #include "../atmosphere/atmosphere.h"
 #include "frustum_cull.h"
@@ -16,8 +15,8 @@ ECS_COMPONENT_DECLARE(FlecsRenderView);
 ECS_COMPONENT_DECLARE(FlecsRenderViewImpl);
 
 ECS_CTOR(FlecsRenderView, ptr, {
-    ecs_vec_init_t(NULL, &ptr->effects, flecs_render_view_effect_t, 0);
     ecs_os_zeromem(ptr);
+    ecs_vec_init_t(NULL, &ptr->effects, flecs_render_view_effect_t, 0);
     ptr->ambient_intensity = 1.0f;
     ptr->shadow.enabled = true;
     ptr->shadow.map_size = FLECS_ENGINE_SHADOW_MAP_SIZE_DEFAULT;
@@ -652,6 +651,7 @@ static WGPURenderPassEncoder flecsEngine_renderView_beginPass(
     const FlecsSurface *surface = ecs_get(world, engine->surface, FlecsSurface);
     bool msaa = flecsEngine_surface_sampleCount(surface) > 1
         && view_impl->msaa_color_texture_view;
+    WGPUColor clear_color = (WGPUColor){0, 0, 0, 1};
 
     WGPURenderPassColorAttachment color_attachment = {
         .view = msaa ? view_impl->msaa_color_texture_view : color_view,
@@ -659,7 +659,7 @@ static WGPURenderPassEncoder flecsEngine_renderView_beginPass(
         WGPU_DEPTH_SLICE
         .loadOp = color_load_op,
         .storeOp = WGPUStoreOp_Store,
-        .clearValue = (WGPUColor){0, 0, 0, 1}
+        .clearValue = clear_color
     };
 
     WGPURenderPassDepthStencilAttachment depth_attachment = {
@@ -879,6 +879,9 @@ static void flecsEngine_renderView_render(
 
     ecs_entity_t atmosphere = flecsEngine_renderView_atmosphere(world, view);
     bool have_atmosphere = atmosphere != 0;
+    bool direct_to_view = !have_atmosphere &&
+        effect_count == 0 &&
+        surface->resolution_scale <= 1;
     if (have_atmosphere) {
         FLECS_TRACY_ZONE_BEGIN_N(atm_ensure_zone, "AtmosEnsureImpl");
         bool scene_ok = flecsEngine_renderView_ensureSceneTarget(world, engine, impl);
@@ -948,8 +951,25 @@ static void flecsEngine_renderView_render(
         }
     }
 
-    flecsEngine_renderView_renderBatches(
-        world, view_entity, engine, view, impl, encoder);
+    if (direct_to_view) {
+        const FlecsRenderBatchSet *batch_set = ecs_get(
+            world, view_entity, FlecsRenderBatchSet);
+        ecs_assert(batch_set != NULL, ECS_INTERNAL_ERROR, NULL);
+
+        WGPURenderPassEncoder pass = flecsEngine_renderView_beginPass(
+            world, engine, view, impl, encoder, view_texture,
+            WGPULoadOp_Clear, WGPULoadOp_Clear, "MainDirect");
+        impl->last_pipeline = NULL;
+
+        flecsEngine_renderBatchSet_render(
+            world, engine, impl, batch_set, pass, view, 0);
+
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+    } else {
+        flecsEngine_renderView_renderBatches(
+            world, view_entity, engine, view, impl, encoder);
+    }
 
     if (flecsEngine_surface_sampleCount(surface) > 1) {
         flecsEngine_depthResolve(engine, impl, encoder);
@@ -977,8 +997,10 @@ static void flecsEngine_renderView_render(
         }
     }
 
-    flecsEngine_renderView_renderEffects(
-        world, view_entity, engine, view, impl, view_texture, encoder);
+    if (!direct_to_view) {
+        flecsEngine_renderView_renderEffects(
+            world, view_entity, engine, view, impl, view_texture, encoder);
+    }
 
     FLECS_TRACY_ZONE_END;
 }
@@ -1208,6 +1230,7 @@ void flecsEngine_renderView_register(
         .entity = ecs_id(flecs_render_view_effect_t),
         .members = {
             { .name = "enabled", .type = ecs_id(ecs_bool_t) },
+            { .name = "input", .type = ecs_id(ecs_i32_t) },
             { .name = "effect", .type = ecs_id(ecs_entity_t) }
         }
     });

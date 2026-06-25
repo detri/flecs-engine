@@ -1,6 +1,8 @@
 #include "platform.h"
 #include "webgpu_utils.h"
 
+#include <string.h>
+
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
@@ -64,7 +66,8 @@ static void flecsEngine_onDeviceError(
     case WGPUErrorType_OutOfMemory: type_str = "out of memory"; break;
     default: break;
     }
-    printf("[wasm] WebGPU %s error: %s\n", type_str, message ? message : "");
+    ecs_err("WebGPU %s error: %s",
+        type_str, message ? message : "");
 }
 
 #else /* native / wgpu-native */
@@ -95,10 +98,10 @@ static void flecsEngine_onRequestAdapter(
         *adapter_out = adapter;
     } else {
         if (message.data) {
-            ecs_err("Adapter request failed: %.*s\n",
-                (int)message.length, message.data);
+        ecs_err("Adapter request failed: %.*s",
+            (int)message.length, message.data);
         } else {
-            ecs_err("Adapter request failed: unknown\n");
+            ecs_err("Adapter request failed: unknown");
         }
     }
 
@@ -119,14 +122,64 @@ static void flecsEngine_onRequestDevice(
         *device_out = device;
     } else {
         if (message.data) {
-            ecs_err("Device request failed: %.*s\n",
-                (int)message.length, message.data);
+        ecs_err("Device request failed: %.*s",
+            (int)message.length, message.data);
         } else {
-            ecs_err("Device request failed: unknown\n");
+            ecs_err("Device request failed: unknown");
         }
     }
 
     *future_cond = true;
+}
+
+static void flecsEngine_onDeviceError(
+    WGPUDevice const *device,
+    WGPUErrorType type,
+    WGPUStringView message,
+    void *userdata1,
+    void *userdata2)
+{
+    (void)device;
+    (void)userdata1;
+    (void)userdata2;
+
+    const char *type_str = "unknown";
+    switch (type) {
+    case WGPUErrorType_Validation: type_str = "validation"; break;
+    case WGPUErrorType_OutOfMemory: type_str = "out of memory"; break;
+    case WGPUErrorType_Internal: type_str = "internal"; break;
+    default: break;
+    }
+    if (message.data) {
+        size_t len = message.length == WGPU_STRLEN
+            ? strlen(message.data)
+            : message.length;
+        ecs_err("WebGPU %s error: %.*s",
+            type_str, (int)len, message.data);
+    } else {
+        ecs_err("WebGPU %s error: (no message)", type_str);
+    }
+}
+
+static void flecsEngine_onDeviceLost(
+    WGPUDevice const *device,
+    WGPUDeviceLostReason reason,
+    WGPUStringView message,
+    void *userdata1,
+    void *userdata2)
+{
+    (void)device;
+    (void)userdata1;
+    (void)userdata2;
+    if (message.data) {
+        size_t len = message.length == WGPU_STRLEN
+            ? strlen(message.data)
+            : message.length;
+        ecs_err("WebGPU device lost (reason=%d): %.*s",
+            (int)reason, (int)len, message.data);
+    } else {
+        ecs_err("WebGPU device lost (reason=%d): (no message)", (int)reason);
+    }
 }
 
 #endif /* __EMSCRIPTEN__ */
@@ -186,7 +239,14 @@ WGPUDevice flecsEngine_requestDevice(
     };
     WGPUDeviceDescriptor desc = {
         .requiredFeatures = required_features,
-        .requiredFeatureCount = 2
+        .requiredFeatureCount = 2,
+        .deviceLostCallbackInfo = {
+            .mode = WGPUCallbackMode_AllowSpontaneous,
+            .callback = flecsEngine_onDeviceLost
+        },
+        .uncapturedErrorCallbackInfo = {
+            .callback = flecsEngine_onDeviceError
+        }
     };
 
     WGPULimits required_limits;
@@ -353,7 +413,9 @@ void flecsEngine_bufferMapAsync(
 #ifdef __EMSCRIPTEN__
 static WGPUSwapChain compat_swap_chain;
 #else
+#if defined(__APPLE__)
 extern void *flecs_create_metal_layer(void *ns_window);
+#endif
 #endif
 
 WGPUSurface flecsEngine_createSurface(
@@ -374,6 +436,7 @@ WGPUSurface flecsEngine_createSurface(
         .nextInChain = (WGPUChainedStruct*)&canvas_desc
     };
 #else
+#if defined(__APPLE__)
     void *metal_layer = flecs_create_metal_layer(
         glfwGetCocoaWindow(window));
 
@@ -385,6 +448,19 @@ WGPUSurface flecsEngine_createSurface(
     WGPUSurfaceDescriptor surface_desc = {
         .nextInChain = (WGPUChainedStruct*)&metal_desc
     };
+#elif defined(_WIN32)
+    WGPUSurfaceSourceWindowsHWND hwnd_desc = {
+        .chain = { .sType = WGPUSType_SurfaceSourceWindowsHWND },
+        .hinstance = GetModuleHandle(NULL),
+        .hwnd = glfwGetWin32Window(window)
+    };
+
+    WGPUSurfaceDescriptor surface_desc = {
+        .nextInChain = (WGPUChainedStruct*)&hwnd_desc
+    };
+#else
+#error "Native WebGPU surface creation is not implemented on this platform"
+#endif
 #endif
 
     return wgpuInstanceCreateSurface(instance, &surface_desc);
@@ -566,4 +642,3 @@ void flecsEngine_releaseSwapChain(void)
     FLECS_WGPU_RELEASE(compat_swap_chain, wgpuSwapChainRelease);
 #endif
 }
-

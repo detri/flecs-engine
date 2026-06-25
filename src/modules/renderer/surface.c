@@ -39,10 +39,10 @@ int flecsEngine_surfaceInterface_initInstance(
     const FlecsSurface *config,
     FlecsSurfaceImpl *impl)
 {
-    if (!impl || !impl->interface || !impl->interface->init_instance) {
+    if (!impl || !impl->ops || !impl->ops->init_instance) {
         return 0;
     }
-    return impl->interface->init_instance(engine, config, impl);
+    return impl->ops->init_instance(engine, config, impl);
 }
 
 int flecsEngine_surfaceInterface_configureTarget(
@@ -50,10 +50,10 @@ int flecsEngine_surfaceInterface_configureTarget(
     FlecsEngineImpl *engine,
     FlecsSurfaceImpl *impl)
 {
-    if (!impl || !impl->interface || !impl->interface->configure_target) {
+    if (!impl || !impl->ops || !impl->ops->configure_target) {
         return 0;
     }
-    return impl->interface->configure_target(world, engine, impl);
+    return impl->ops->configure_target(world, engine, impl);
 }
 
 int flecsEngine_surfaceInterface_prepareFrame(
@@ -61,10 +61,10 @@ int flecsEngine_surfaceInterface_prepareFrame(
     FlecsEngineImpl *engine,
     FlecsSurfaceImpl *impl)
 {
-    if (!impl || !impl->interface || !impl->interface->prepare_frame) {
+    if (!impl || !impl->ops || !impl->ops->prepare_frame) {
         return -1;
     }
-    return impl->interface->prepare_frame(world, engine, impl);
+    return impl->ops->prepare_frame(world, engine, impl);
 }
 
 int flecsEngine_surfaceInterface_acquireFrame(
@@ -72,10 +72,10 @@ int flecsEngine_surfaceInterface_acquireFrame(
     FlecsSurfaceImpl *impl,
     FlecsEngineSurface *target)
 {
-    if (!impl || !impl->interface || !impl->interface->acquire_frame) {
+    if (!impl || !impl->ops || !impl->ops->acquire_frame) {
         return -1;
     }
-    return impl->interface->acquire_frame(engine, impl, target);
+    return impl->ops->acquire_frame(engine, impl, target);
 }
 
 int flecsEngine_surfaceInterface_encodeFrame(
@@ -85,10 +85,10 @@ int flecsEngine_surfaceInterface_encodeFrame(
     WGPUCommandEncoder encoder,
     FlecsEngineSurface *target)
 {
-    if (!impl || !impl->interface || !impl->interface->encode_frame) {
+    if (!impl || !impl->ops || !impl->ops->encode_frame) {
         return 0;
     }
-    return impl->interface->encode_frame(world, engine, impl, encoder, target);
+    return impl->ops->encode_frame(world, engine, impl, encoder, target);
 }
 
 int flecsEngine_surfaceInterface_submitFrame(
@@ -97,10 +97,10 @@ int flecsEngine_surfaceInterface_submitFrame(
     FlecsSurfaceImpl *impl,
     const FlecsEngineSurface *target)
 {
-    if (!impl || !impl->interface || !impl->interface->submit_frame) {
+    if (!impl || !impl->ops || !impl->ops->submit_frame) {
         return -1;
     }
-    return impl->interface->submit_frame(world, engine, impl, target);
+    return impl->ops->submit_frame(world, engine, impl, target);
 }
 
 void flecsEngine_surfaceInterface_onFrameFailed(
@@ -108,10 +108,10 @@ void flecsEngine_surfaceInterface_onFrameFailed(
     FlecsEngineImpl *engine,
     FlecsSurfaceImpl *impl)
 {
-    if (!impl || !impl->interface || !impl->interface->on_frame_failed) {
+    if (!impl || !impl->ops || !impl->ops->on_frame_failed) {
         return;
     }
-    impl->interface->on_frame_failed(world, engine, impl);
+    impl->ops->on_frame_failed(world, engine, impl);
 }
 
 void flecsEngine_surfaceInterface_cleanup(
@@ -119,10 +119,10 @@ void flecsEngine_surfaceInterface_cleanup(
     FlecsSurfaceImpl *impl,
     bool terminate_runtime)
 {
-    if (!impl || !impl->interface || !impl->interface->cleanup) {
+    if (!impl || !impl->ops || !impl->ops->cleanup) {
         return;
     }
-    impl->interface->cleanup(engine, impl, terminate_runtime);
+    impl->ops->cleanup(engine, impl, terminate_runtime);
 }
 
 void flecsEngine_surface_set(
@@ -173,7 +173,7 @@ static void FlecsOnSurfaceSet(
         FlecsSurfaceImpl impl = {0};
 
         if (config->write_to_file) {
-            impl.interface = &flecsEngineFrameOutOps;
+            impl.ops = &flecsEngineFrameOutOps;
         } else {
             int w = config->width > 0 ? config->width : 1280;
             int h = config->height > 0 ? config->height : 800;
@@ -193,7 +193,7 @@ static void FlecsOnSurfaceSet(
             }
 #endif
             impl.vsync = config->vsync;
-            impl.interface = &flecsEngineWindowOps;
+            impl.ops = &flecsEngineWindowOps;
         }
 
         if (flecsEngine_init(it->world, entity, config, &impl)) {

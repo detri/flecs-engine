@@ -23,8 +23,12 @@ include(FetchContent)
 
 if(NOT EMSCRIPTEN)
   include(ExternalProject)
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(WGPU QUIET wgpu-native)
+  if(NOT WIN32)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+      pkg_check_modules(WGPU QUIET wgpu-native)
+    endif()
+  endif()
 endif()
 
 # -- GLFW (native only; emscripten uses -sUSE_GLFW=3) --
@@ -50,9 +54,14 @@ set(CGLM_SHARED OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(cglm)
 
 # -- flecs --
+set(FLECS_GIT_REPOSITORY "https://github.com/SanderMertens/flecs.git"
+  CACHE STRING "Git repository used to fetch flecs when no local checkout is supplied")
+set(FLECS_GIT_TAG "master"
+  CACHE STRING "Git revision used to fetch flecs")
 FetchContent_Declare(
   flecs
-  SOURCE_DIR /Users/sandermertens/GitHub/SanderMertens/flecs
+  GIT_REPOSITORY ${FLECS_GIT_REPOSITORY}
+  GIT_TAG ${FLECS_GIT_TAG}
 )
 set(FLECS_SHARED OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(flecs)
@@ -91,10 +100,14 @@ if(EMSCRIPTEN)
   file(GLOB_RECURSE FLECS_ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
   )
-else()
+elseif(APPLE)
   file(GLOB_RECURSE FLECS_ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.m"
+  )
+else()
+  file(GLOB_RECURSE FLECS_ENGINE_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
   )
 endif()
 
@@ -107,7 +120,11 @@ list(APPEND FLECS_ENGINE_SOURCES
 add_library(flecs_engine STATIC ${FLECS_ENGINE_SOURCES})
 
 if(NOT EMSCRIPTEN)
-  target_compile_definitions(flecs_engine PRIVATE GLFW_EXPOSE_NATIVE_COCOA)
+  if(APPLE)
+    target_compile_definitions(flecs_engine PRIVATE GLFW_EXPOSE_NATIVE_COCOA)
+  elseif(WIN32)
+    target_compile_definitions(flecs_engine PRIVATE GLFW_EXPOSE_NATIVE_WIN32)
+  endif()
 endif()
 
 # -- wgpu (native only; emscripten uses -sUSE_WEBGPU=1) --
@@ -118,7 +135,18 @@ if(NOT EMSCRIPTEN)
     target_link_libraries(flecs_engine PUBLIC ${WGPU_LIBRARIES})
   else()
     set(WGPU_NATIVE_DIR ${CMAKE_BINARY_DIR}/_deps/wgpu_native-src)
-    set(WGPU_NATIVE_LIB ${WGPU_NATIVE_DIR}/target/release/libwgpu_native.dylib)
+    set(WGPU_NATIVE_LIB_DIR ${WGPU_NATIVE_DIR}/target/release)
+
+    if(APPLE)
+      set(WGPU_NATIVE_LIB ${WGPU_NATIVE_LIB_DIR}/libwgpu_native.dylib)
+      set(WGPU_NATIVE_IMPLIB ${WGPU_NATIVE_LIB})
+    elseif(WIN32)
+      set(WGPU_NATIVE_LIB ${WGPU_NATIVE_LIB_DIR}/wgpu_native.dll)
+      set(WGPU_NATIVE_IMPLIB ${WGPU_NATIVE_LIB_DIR}/wgpu_native.dll.lib)
+    else()
+      set(WGPU_NATIVE_LIB ${WGPU_NATIVE_LIB_DIR}/libwgpu_native.so)
+      set(WGPU_NATIVE_IMPLIB ${WGPU_NATIVE_LIB})
+    endif()
 
     ExternalProject_Add(
       wgpu_native_ep
@@ -130,11 +158,14 @@ if(NOT EMSCRIPTEN)
       BUILD_IN_SOURCE 1
       INSTALL_COMMAND ""
       SOURCE_DIR ${WGPU_NATIVE_DIR}
-      BUILD_BYPRODUCTS ${WGPU_NATIVE_LIB}
+      BUILD_BYPRODUCTS ${WGPU_NATIVE_LIB} ${WGPU_NATIVE_IMPLIB}
     )
 
     add_library(wgpu_native_lib SHARED IMPORTED)
-    set_target_properties(wgpu_native_lib PROPERTIES IMPORTED_LOCATION ${WGPU_NATIVE_LIB})
+    set_target_properties(wgpu_native_lib PROPERTIES
+      IMPORTED_LOCATION ${WGPU_NATIVE_LIB}
+      IMPORTED_IMPLIB ${WGPU_NATIVE_IMPLIB}
+    )
     add_dependencies(wgpu_native_lib wgpu_native_ep)
 
     target_include_directories(flecs_engine PRIVATE

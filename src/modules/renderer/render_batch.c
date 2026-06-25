@@ -513,6 +513,10 @@ void flecsEngine_renderBatch_render(
     }
 
     flecsEngine_renderView_ensureSceneBindGroup(world, engine, view_impl, view);
+    if (!view_impl->scene_bind_group) {
+        FLECS_TRACY_ZONE_END;
+        return;
+    }
     wgpuRenderPassEncoderSetBindGroup(
         pass, 0, view_impl->scene_bind_group, 0, NULL);
 

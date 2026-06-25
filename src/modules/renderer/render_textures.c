@@ -31,7 +31,7 @@ static WGPUTexture flecsEngine_texture_createFromPixels(
     uint32_t bytes_per_pixel = 4;
 
     /* Allow sRGB view creation for RGBA8Unorm textures so the blit can
-     * sample albedo/emissive through an sRGB view (auto sRGB→linear). */
+     * sample albedo/emissive through an sRGB view (auto sRGB-to-linear). */
     WGPUTextureFormat srgb_fmt = WGPUTextureFormat_RGBA8UnormSrgb;
     bool has_srgb_view = (format == WGPUTextureFormat_RGBA8Unorm);
 
@@ -276,6 +276,7 @@ WGPUTexture flecsEngine_texture_loadFile(
                 return tex;
             }
         }
+        fprintf(stderr, "texture: failed %s (%s)\n", path, stbi_failure_reason());
         ecs_err("failed to load texture: %s (%s)", path, stbi_failure_reason());
         return NULL;
     }
@@ -527,4 +528,3 @@ void flecsEngine_texture_onSet(
         }
     }
 }
-

@@ -1,7 +1,8 @@
 # Flecs engine
 A fast, portable, low footprint, opinionated (but hackable), flecs native game engine.
 
-The project is still WIP and currently only works on MacOS.
+The project is still WIP. Native macOS and Windows are supported targets, and
+Linux native support is still pending.
 
 ## Usage
 Build & run the engine:
@@ -9,6 +10,22 @@ Build & run the engine:
 cmake -S . -B build/debug
 cmake --build build/debug
 ./build/debug/flecs
+```
+
+### Windows
+On Windows, use the Visual Studio developer command prompt or call
+`vcvars64.bat` before configuring with CMake. The native build expects:
+
+- MSVC
+- CMake
+- Ninja
+- Rust/Cargo for the `wgpu-native` fallback build
+
+Example:
+```powershell
+cmake -S . -B build/windows -G Ninja
+cmake --build build/windows
+.\build\windows\flecs.exe
 ```
 
 ### Building with bake3

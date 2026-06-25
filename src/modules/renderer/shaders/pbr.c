@@ -41,7 +41,6 @@ static const char *kShaderSource =
     "};\n"
 
     FLECS_ENGINE_SHADER_COMMON_SHARED_VERTEX_WGSL
-
     "@vertex fn vs_main(input : VertexInput) -> VertexOutput {\n"
     "  var out : VertexOutput;\n"
     "  let t = instance_transforms[input.slot];\n"

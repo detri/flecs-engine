@@ -567,19 +567,40 @@ void flecsEngine_batch_group_prepareStaticArgs(
     if (!buf || ctx->static_view.group_idx < 0) {
         return;
     }
+    bool identity = (buf->flags & FLECS_BATCH_NO_GPU_CULL) != 0;
     flecsEngine_batch_group_prepareArgsForSet(
         &buf->static_buffers, &ctx->static_view,
-        (uint32_t)ctx->mesh.index_count, false);
+        (uint32_t)ctx->mesh.index_count, identity);
 }
 
 /* For identity batches, slot_to_group isn't read but visible_slots for the
  * main view must be filled with identity indices [src_offset..src_offset+count).
  */
-static void flecsEngine_batch_fillIdentityVisible(
-    flecsEngine_batch_t *buf)
+static void flecsEngine_batchBuffers_fillIdentityVisible(
+    flecsEngine_batch_buffers_t *bb)
 {
     /* Not needed if empty. */
-    if (!buf->buffers.count) return;
+    if (!bb->count) return;
+}
+
+static void flecsEngine_batchBuffers_writeIdentityVisible(
+    const FlecsEngineImpl *engine,
+    const flecsEngine_batch_buffers_t *bb)
+{
+    if (!bb->gpu_visible_slots || !bb->count) {
+        return;
+    }
+
+    int32_t count = bb->count;
+    uint32_t *tmp = ecs_os_malloc_n(uint32_t, count);
+    for (int32_t i = 0; i < count; i ++) {
+        tmp[i] = (uint32_t)i;
+    }
+    wgpuQueueWriteBuffer(engine->queue,
+        bb->gpu_visible_slots, 0,
+        tmp, (uint64_t)count * sizeof(uint32_t));
+    ecs_os_free(tmp);
+    (void)flecsEngine_batchBuffers_fillIdentityVisible;
 }
 
 void flecsEngine_batch_writeIdentityVisible(
@@ -589,20 +610,7 @@ void flecsEngine_batch_writeIdentityVisible(
     if (!(buf->flags & FLECS_BATCH_NO_GPU_CULL)) {
         return;
     }
-    if (!buf->buffers.gpu_visible_slots || !buf->buffers.count) {
-        return;
-    }
-
-    int32_t count = buf->buffers.count;
-    uint32_t *tmp = ecs_os_malloc_n(uint32_t, count);
-    for (int32_t i = 0; i < count; i ++) {
-        tmp[i] = (uint32_t)i;
-    }
-    wgpuQueueWriteBuffer(engine->queue,
-        buf->buffers.gpu_visible_slots, 0,
-        tmp, (uint64_t)count * sizeof(uint32_t));
-    ecs_os_free(tmp);
-    (void)flecsEngine_batch_fillIdentityVisible;
+    flecsEngine_batchBuffers_writeIdentityVisible(engine, &buf->buffers);
 }
 
 static void flecsEngine_utils_worldAabb(
@@ -749,6 +757,10 @@ void flecsEngine_batch_uploadStatic(
         ._pad = 0
     };
     wgpuQueueWriteBuffer(queue, bb->gpu_batch_info, 0, &info, sizeof(info));
+
+    if ((buf->flags & FLECS_BATCH_NO_GPU_CULL)) {
+        flecsEngine_batchBuffers_writeIdentityVisible(engine, bb);
+    }
 
     for (int32_t g = 0; g < group_count; g ++) {
         flecsEngine_batch_group_t *ctx = groups[g];

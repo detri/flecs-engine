@@ -1,6 +1,8 @@
 #define FLECS_ENGINE_CAMERA_IMPL
 #include "camera.h"
 #include "../../tracy_hooks.h"
+#include <cglm/clipspace/ortho_rh_zo.h>
+#include <cglm/clipspace/persp_rh_zo.h>
 
 ECS_COMPONENT_DECLARE(FlecsCameraImpl);
 ECS_COMPONENT_DECLARE(FlecsCameraAutoMove);
@@ -31,11 +33,11 @@ static void FlecsCameraTransform(ecs_iter_t *it) {
         }
 
         if (cam->orthographic) {
-            glm_ortho_default(
-                cam->aspect_ratio, 
+            glm_ortho_default_rh_zo(
+                cam->aspect_ratio,
                 impl[i].proj);
         } else {
-            glm_perspective(
+            glm_perspective_rh_zo(
                 cam->fov, cam->aspect_ratio, cam->near_, cam->far_,
                 impl[i].proj);
         }

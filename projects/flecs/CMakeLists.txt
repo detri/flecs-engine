@@ -6,6 +6,14 @@ target_include_directories(flecs PRIVATE
 
 target_link_libraries(flecs PRIVATE flecs_engine)
 
+if(WIN32 AND NOT EMSCRIPTEN AND TARGET wgpu_native_lib)
+  add_custom_command(TARGET flecs POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:wgpu_native_lib>
+      $<TARGET_FILE_DIR:flecs>
+  )
+endif()
+
 if(EMSCRIPTEN)
   target_link_options(flecs PRIVATE
     -sALLOW_MEMORY_GROWTH=1

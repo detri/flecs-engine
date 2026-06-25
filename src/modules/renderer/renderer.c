@@ -6,6 +6,8 @@
 #include "../engine/engine.h"
 #include "../../tracy_hooks.h"
 
+#include <stddef.h>
+
 #define FLECS_ENGINE_RENDERER_IMPL
 #define FLECS_ENGINE_RENDERER_IMPL_IMPL
 #include "flecs_engine.h"
@@ -302,7 +304,7 @@ static void FlecsEngineRender(
     ecs_iter_t *it)
 {
     FLECS_TRACY_ZONE_BEGIN("Render");
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
     FLECS_TRACY_ZONE_BEGIN_N(__dbg, "DebugServerDequeue");
     flecsEngine_debugServer_dequeue(it->delta_time);
     FLECS_TRACY_ZONE_END_N(__dbg);
@@ -580,7 +582,10 @@ void FlecsEngineRendererImport(
         .immediate = true
     });
 
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
+    /* Keep the optional native debug HTTP server off on Windows for now.
+     * It is not renderer-critical and previously added avoidable per-frame
+     * overhead while the native path was still being stabilized. */
     flecsEngine_debugServer_init(world);
 #endif
 }

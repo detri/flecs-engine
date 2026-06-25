@@ -1,6 +1,3 @@
-module kenney
-include kenney_assets
-
 using flecs.script
 using flecs.engine.*
 

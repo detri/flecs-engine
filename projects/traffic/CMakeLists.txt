@@ -9,6 +9,14 @@ target_include_directories(traffic PRIVATE
 
 target_link_libraries(traffic PRIVATE flecs_engine)
 
+if(WIN32 AND NOT EMSCRIPTEN AND TARGET wgpu_native_lib)
+  add_custom_command(TARGET traffic POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:wgpu_native_lib>
+      $<TARGET_FILE_DIR:traffic>
+  )
+endif()
+
 if(EMSCRIPTEN)
   target_link_options(traffic PRIVATE
     -sALLOW_MEMORY_GROWTH=1

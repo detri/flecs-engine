@@ -162,7 +162,7 @@ void flecsEngine_renderView_renderEffects(
         }
     }
 
-    /* No effects enabled — blit batch output to screen via passthrough. */
+    /* No effects enabled - blit batch output to screen via passthrough. */
     if (last_enabled < 0) {
         if (!viewImpl->passthrough_bind_group) {
             WGPUBindGroupEntry entries[2] = {
@@ -204,9 +204,6 @@ void flecsEngine_renderView_renderEffects(
         ecs_assert(kind != NULL, ECS_INVALID_PARAMETER, NULL);
         ecs_assert(effect_impl != NULL, ECS_INVALID_PARAMETER, NULL);
 
-        ecs_assert(effects[i].input >= 0, ECS_INVALID_PARAMETER, NULL);
-        ecs_assert(effects[i].input <= i, ECS_INVALID_PARAMETER, NULL);
-
         const char *effect_name = ecs_get_name(world, entity);
         FLECS_TRACY_ZONE_BEGIN_DYN(effect_zone, "Effect", effect_name);
 
@@ -222,7 +219,11 @@ void flecsEngine_renderView_renderEffects(
         /* input == 0 means "previous effect's output" (or the batches
          * framebuffer for the first effect). Any explicit non-zero input
          * picks that specific point in the chain. */
-        int32_t requested_input = effects[i].input ? effects[i].input : i;
+        int32_t requested_input = effects[i].input;
+        if (requested_input < 0 || requested_input > i) {
+            requested_input = 0;
+        }
+        requested_input = requested_input ? requested_input : i;
         int32_t resolved_input = flecsEngine_resolveEffectInput(
             effects, requested_input);
         WGPUTextureView input_view =

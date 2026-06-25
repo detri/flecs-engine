@@ -69,7 +69,7 @@ int flecsEngine_init(
     const FlecsSurface *config,
     FlecsSurfaceImpl *impl)
 {
-    if (!config || !impl || !impl->interface) {
+    if (!config || !impl || !impl->ops) {
         ecs_err("Invalid engine output backend\n");
         return -1;
     }
@@ -139,8 +139,8 @@ int flecsEngine_init(
     return 0;
 
 error:
-    if (impl->interface && impl->interface->cleanup) {
-        impl->interface->cleanup(engine, impl, false);
+    if (impl->ops && impl->ops->cleanup) {
+        impl->ops->cleanup(engine, impl, false);
     }
     flecsEngine_surfaceImpl_release(impl);
     flecsEngine_cleanup(world, engine, false);

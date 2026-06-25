@@ -121,6 +121,18 @@ static void flecsEngine_batch_group_drawViewForSet(
     wgpuRenderPassEncoderSetIndexBuffer(
         pass, ctx->mesh.index_buffer, WGPUIndexFormat_Uint32, 0,
         WGPU_WHOLE_SIZE);
+
+    if (ctx->batch && (ctx->batch->flags & FLECS_BATCH_NO_GPU_CULL)) {
+        wgpuRenderPassEncoderDrawIndexed(
+            pass,
+            (uint32_t)ctx->mesh.index_count,
+            (uint32_t)src_count,
+            0,
+            0,
+            0);
+        return;
+    }
+
     wgpuRenderPassEncoderDrawIndexedIndirect(
         pass, bb->gpu_indirect_args, args_offset);
 }
